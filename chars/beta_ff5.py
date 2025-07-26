@@ -1,4 +1,4 @@
-# CAPM beta
+# FF5 Beta
 # Note: Please use the latest version of pandas, this version should support returning to pd.Series after rolling
 # To get a faster speed, we split the big dataframe into small ones
 # Then using different process to calculate the variance
@@ -25,9 +25,9 @@ conn = wrds.Connection()
 
 # CRSP Block
 crsp = conn.raw_sql("""
-                      select a.permno, a.date, a.ret, a.vol, b.rf, b.mktrf, b.smb, b.hml
+                      select a.permno, a.date, a.ret, a.vol, b.rf, b.mktrf, b.smb, b.hml, b.umd, b.rmw, b.cma
                       from crsp.dsf as a
-                      left join ff.factors_daily as b
+                      left join ff_all.fivefactors_daily as b
                       on a.date=b.date
                       where a.date > '01/01/1959'
                       """)
@@ -115,7 +115,7 @@ def get_beta(df, firm_list):
                 else:
                     rolling_window = temp['permno'].count()
                     index = temp.tail(1).index
-                    X = np.array(temp[['mktrf']])
+                    X = np.array(temp[['mktrf', 'smb', 'hml', 'rmw', 'cma']])
                     Y = np.array(temp[['exret']])
                     ones = np.ones((rolling_window, 1))
                     M = np.eye(rolling_window) - ones.dot(ones.T) / rolling_window
@@ -181,5 +181,5 @@ crsp = crsp.dropna(subset=['beta'])  # drop NA due to rolling
 crsp = crsp.reset_index(drop=True)
 crsp = crsp[['permno', 'date', 'beta']]
 
-with open('beta.feather', 'wb') as f:
+with open('beta_ff5.feather', 'wb') as f:
     feather.write_feather(crsp, f)
