@@ -108,19 +108,22 @@ def get_beta(df, firm_list):
             temp = df[(df['permno'] == firm) & (i - 2 <= df['month_count']) & (df['month_count'] <= i)]
             # if observations in last 3 months are less 21, we drop the rvar of this month
             if temp['permno'].count() < 21:
-                pass
-            else:
-                if temp['vol'].notna().sum() < 21:
-                    pass
-                else:
-                    rolling_window = temp['permno'].count()
-                    index = temp.tail(1).index
-                    X = np.array(temp[['mktrf']])
-                    Y = np.array(temp[['exret']])
-                    ones = np.ones((rolling_window, 1))
-                    M = np.eye(rolling_window) - ones.dot(ones.T) / rolling_window
-                    beta = np.linalg.solve(X.T.dot(M).dot(X), X.T.dot(M).dot(Y)) 
-                    df.loc[index, 'beta'] = beta
+                continue  # Skip if not enough observations
+            
+            if temp['vol'].notna().sum() < 21:
+                continue  # Skip if not enough volume data
+                
+            if temp['exret'].isna().any():
+                continue  # Skip if any NA values in excess returns
+            
+            rolling_window = temp['permno'].count()
+            index = temp.tail(1).index
+            X = np.array(temp[['mktrf']], dtype=np.float64)
+            Y = np.array(temp[['exret']], dtype=np.float64)
+            ones = np.ones((rolling_window, 1), dtype=np.float64)
+            M = np.eye(rolling_window) - ones.dot(ones.T) / rolling_window
+            beta = np.linalg.solve(X.T.dot(M).dot(X), X.T.dot(M).dot(Y)) 
+            df.loc[index, 'beta'] = beta
     return df
 
 
