@@ -9,11 +9,13 @@ from dateutil.relativedelta import *
 from pandas.tseries.offsets import *
 import pyarrow.feather as feather
 import sqlite3
+from datetime import datetime
 
 ###################
 # Connect to WRDS #
 ###################
 conn = wrds.Connection()
+print(f"Connected to WRDS successfully!")
 
 ###################
 # Compustat Block #
@@ -25,7 +27,7 @@ comp = conn.raw_sql("""
                     and datafmt = 'STD'
                     and popsrc = 'D'
                     and consol = 'C'
-                    and datadate >= '01/01/1959'
+                    and datadate >= '01/01/1990'
                     """)
 
 comp['datadate'] = pd.to_datetime(comp['datadate'])
@@ -38,11 +40,9 @@ ccm = conn.raw_sql("""
                   select gvkey, lpermno as permno, linktype, linkprim, 
                   linkdt, linkenddt
                   from crsp.ccmxpf_linktable
-                  where linktype in ('LU', 'LC')
-                  """)
-
-ccm['linkdt'] = pd.to_datetime(ccm['linkdt'])
-ccm['linkenddt'] = pd.to_datetime(ccm['linkenddt'])
+                  where linktype in ('LU', 'LC', 'LS')
+                  and (linkprim ='C' or linkprim='P')
+                  """, date_cols=['linkdt', 'linkenddt'])
 
 # if linkenddt is missing then set to today date
 ccm['linkenddt'] = ccm['linkenddt'].fillna(pd.to_datetime('today'))
@@ -52,94 +52,104 @@ ccm1 = pd.merge(comp, ccm, how='left', on=['gvkey'])
 ccm1['rdq'] = pd.to_datetime(ccm1['rdq'])
 
 # set link date bounds
-ccm2 = ccm1[(ccm1['datadate'] >= ccm1['linkdt']) & (ccm1['datadate'] <= ccm1['linkenddt'])]
+ccm2 = ccm1[(ccm1['datadate'] >= ccm1['linkdt']) &
+            (ccm1['datadate'] <= ccm1['linkenddt'])]
 ccm2 = ccm2[['gvkey', 'datadate', 'rdq', 'fyearq', 'fqtr', 'permno']]
 
+print('='*10, 'ccm data is ready', '='*10)
 ###################
 #    CRSP Block   #
 ###################
 
 # Report Date of Quarterly Earnings (rdq) may not be trading day, we need to get the first trading day on or after rdq
+# TO DO: check latest date
 crsp_dsi = conn.raw_sql("""
-                        select distinct date
-                        from crsp.dsi
-                        where date >= '01/01/1959'
-                        """)
+    select distinct dlycaldt as date
+    from crspq.inddlyseriesdata_ind
+    where indno = 1000502
+    and dlycaldt >= '01/01/1990'
+    """)
 
 crsp_dsi['date'] = pd.to_datetime(crsp_dsi['date'])
 
 ccm3 = ccm2.copy()
 for i in range(6):  # we only consider the condition that the day after rdq is not a trading day, which is up to 5 days
-    ccm3['trad_%s' % i] = ccm3['rdq'] + pd.DateOffset(days=i)  # set rdq + i days to match trading day
+    # set rdq + i days to match trading day
+    ccm3['trad_%s' % i] = ccm3['rdq'] + pd.DateOffset(days=i)
     crsp_dsi['trad_%s' % i] = crsp_dsi['date']  # set the merging key
-    crsp_dsi = crsp_dsi[['date', 'trad_%s' % i]]  # reset trading day columns to avoid repeat merge
+    # reset trading day columns to avoid repeat merge
+    crsp_dsi = crsp_dsi[['date', 'trad_%s' % i]]
     ccm3 = pd.merge(ccm3, crsp_dsi, how='left', on='trad_%s' % i)
-    ccm3['trad_%s' % i] = ccm3['date']  # reset rdq + i days to matched trading day
+    # reset rdq + i days to matched trading day
+    ccm3['trad_%s' % i] = ccm3['date']
     ccm3 = ccm3.drop(['date'], axis=1)
 
 # fill NA from rdq + 5 days to rdq + 0 days, then get trading day version of rdq
 for i in range(5, 0, -1):
     count = i-1
-    ccm3['trad_%s' % count] = np.where(ccm3['trad_%s' % count].isnull(), ccm3['trad_%s' % i], ccm3['trad_%s' % count])
+    ccm3['trad_%s' % count] = np.where(
+        ccm3['trad_%s' % count].isnull(), ccm3['trad_%s' % i], ccm3['trad_%s' % count])
 
 ccm3['rdq_trad'] = ccm3['trad_0']
 
-ccm3 = ccm3[['gvkey', 'permno', 'datadate', 'fyearq', 'fqtr', 'rdq', 'rdq_trad']]
+ccm3 = ccm3[['gvkey', 'permno', 'datadate',
+             'fyearq', 'fqtr', 'rdq', 'rdq_trad']]
 
 print('='*10, 'crsp block is ready', '='*10)
 #############################
 #    CRSP abnormal return   #
 #############################
 crsp_d = conn.raw_sql("""
-                      select a.prc, a.ret, a.shrout, a.vol, a.cfacpr, a.cfacshr, a.permno, a.permco, a.date,
-                      b.siccd, b.ncusip, b.shrcd, b.exchcd
-                      from crsp.dsf as a
-                      left join crsp.dsenames as b
-                      on a.permno=b.permno
-                      and b.namedt<=a.date
-                      and a.date<=b.nameendt
-                      where a.date >= '01/01/1959'
-                      and b.exchcd between 1 and 3
-                      and b.shrcd in (10,11)
-                      """)
+                      select a.dlyprc, a.dlyret, a.dlyvol,
+                      a.shrout, a.dlycumfacpr, a.dlycumfacshr, a.permno, a.permco, a.dlycaldt,
+                      a.cusip, a.hdrcusip, a.siccd
+                      from crspq.dsf_v2 as a
+                      where a.dlycaldt >= '01/01/1990'
+                      and a.primaryexch IN ('N', 'A', 'Q')
+                      and a.conditionaltype = 'RW'
+                      and a.tradingstatusflg = 'A'
+                      """, date_cols=['dlycaldt'])
+
+crsp_d.rename(columns={'dlyprc': 'prc', 'dlyret': 'ret', 'dlycaldt': 'date',
+                       'dlycumfacpr': 'cfacpr', 'dlycumfacshr': 'cfacshr',
+                       'cusip': 'cusip_crsp'}, inplace=True)
 
 # change variable format to int
-crsp_d[['permco', 'permno', 'shrcd', 'exchcd']] = crsp_d[['permco', 'permno', 'shrcd', 'exchcd']].astype(int)
-
-print('='*10, 'crsp abnormal return is ready', '='*10)
+crsp_d[['permco', 'permno']] = crsp_d[['permco', 'permno']].astype(int)
 
 # convert the date format
 crsp_d['date'] = pd.to_datetime(crsp_d['date'])
 
-# add delisting return
-dlret = conn.raw_sql("""
-                     select permno, dlret, dlstdt 
-                     from crsp.dsedelist
-                     where dlstdt >= '01/01/1959'
-                     """)
+# No need to add delisting return
 
-dlret.permno = dlret.permno.astype(int)
-dlret['dlstdt'] = pd.to_datetime(dlret['dlstdt'])
-
-crsp_d = pd.merge(crsp_d, dlret, how='left', left_on=['permno', 'date'], right_on=['permno', 'dlstdt'])
-# return adjusted for delisting
-crsp_d['retadj'] = np.where(crsp_d['dlret'].notna(), (crsp_d['ret'] + 1)*(crsp_d['dlret'] + 1) - 1, crsp_d['ret'])
-crsp_d['meq'] = crsp_d['prc'].abs()*crsp_d['shrout']  # market value of equity
+# market value of equity - delete .abs()
+crsp_d['meq'] = crsp_d['prc']*crsp_d['shrout']
 crsp_d = crsp_d.sort_values(by=['date', 'permno', 'meq'])
 
 # sprtrn
+# [Instruction1]:https://wrds-www.wharton.upenn.edu/pages/support/support-articles/crsp/stock-v2-siz/recreating-dsi-and-msi-tables/
+# [Instruction2]:https://wrds-www.wharton.upenn.edu/pages/wrds-research/applications/programming-examples-and-other-topics/sp-500-datasets-and-constituents/
+# TODO-later: crspq.inddlyseriesdata_ind
 crspsp500d = conn.raw_sql("""
-                          select date, sprtrn 
-                          from crsp.dsi
-                          where date >= '01/01/1959'
-                          """)
+    select dlycaldt, dlyprcret
+    from crspq.inddlyseriesdata_ind
+    where indno = 1000502
+    and dlycaldt >= '01/01/1990'
+""")
+crspsp500d.rename(columns={
+    'dlycaldt': 'date',
+    'dlyprcret': 'sprtrn'
+}, inplace=True)
 
 crspsp500d['date'] = pd.to_datetime(crspsp500d['date'])
 
 # abnormal return
 crsp_d = pd.merge(crsp_d, crspsp500d, how='left', on='date')
-crsp_d['abrd'] = crsp_d['retadj'] - crsp_d['sprtrn']
-crsp_d = crsp_d[['date', 'permno', 'ret', 'retadj', 'sprtrn', 'abrd']]
+# No need to adjust for delisting return
+crsp_d['abrd'] = crsp_d['ret'] - crsp_d['sprtrn']
+crsp_d = crsp_d[['date', 'permno', 'ret', 'sprtrn', 'abrd']]
+
+print('='*10, 'crsp abnormal return is ready', '='*10)
 
 # date count regarding to rdq
 ccm3['minus10d'] = ccm3['rdq_trad'] - pd.Timedelta(days=10)
@@ -177,11 +187,12 @@ choicelist = [0, 1, -1]
 df['c_1'] = np.select(condlist, choicelist, default=np.nan)
 
 # trading days before rdq_trad
-df_before = df[df['c_1'] == -1]
-df_before['count'] = (df_before.groupby(['permno', 'rdq_trad'])['date'].cumcount(ascending=False) + 1) * -1
+df_before = df[df['c_1'] == -1].copy()
+df_before['count'] = (df_before.groupby(['permno', 'rdq_trad'])[
+                      'date'].cumcount(ascending=False) + 1) * -1
 
 # trading days after rdq_trad
-df_after = df[df['c_1'] >= 0]
+df_after = df[df['c_1'] >= 0].copy()
 df_after['count'] = df_after.groupby(['permno', 'rdq_trad'])['date'].cumcount()
 
 df = pd.concat([df_before, df_after])
@@ -193,7 +204,8 @@ df_temp = df.groupby(['permno', 'rdq_trad'])['abrd'].sum()
 df_temp = pd.DataFrame(df_temp)
 df_temp.reset_index(inplace=True)
 df_temp.rename(columns={'abrd': 'abr'}, inplace=True)
-df = pd.merge(df, df_temp, how='left', on=['permno', 'rdq_trad'], copy=False)  # add abr back to df
+df = pd.merge(df, df_temp, how='left', on=[
+              'permno', 'rdq_trad'], copy=False)  # add abr back to df
 df = df[df['count'] == 1]
 df.rename(columns={'date': 'rdq_plus_1d'}, inplace=True)
 df = df[['gvkey', 'permno', 'datadate', 'rdq', 'rdq_plus_1d', 'abr']]
@@ -202,10 +214,11 @@ print('='*10, 'start populate', '='*10)
 
 # populate the quarterly abr to monthly
 crsp_msf = conn.raw_sql("""
-                        select distinct date
-                        from crsp.msf
-                        where date >= '01/01/1959'
+                        select distinct mthcaldt
+                        from crspq.msf_v2
+                        where mthcaldt >= '01/01/1990'
                         """)
+crsp_msf.rename(columns={'mthcaldt': 'date'}, inplace=True)
 
 df['datadate'] = pd.to_datetime(df['datadate'])
 df['plus12m'] = df['datadate'] + np.timedelta64(12, 'M')
@@ -233,7 +246,11 @@ df['datadate'] = pd.to_datetime(df['datadate'])
 df['rdq'] = pd.to_datetime(df['rdq'])
 df['rdq_plus_1d'] = pd.to_datetime(df['rdq_plus_1d'])
 df = df[['gvkey', 'permno', 'datadate', 'rdq', 'rdq_plus_1d', 'abr', 'date']]
-df = df.dropna(subset=['date'])  # some firm will have records that report date is far away from actual datadate
+# some firm will have records that report date is far away from actual datadate
+df = df.dropna(subset=['date'])
 
 with open('abr.feather', 'wb') as f:
     feather.write_feather(df, f)
+
+# close the connection
+conn.close()

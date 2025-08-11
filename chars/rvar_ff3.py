@@ -22,15 +22,17 @@ import multiprocessing as mp
 # Connect to WRDS #
 ###################
 conn = wrds.Connection()
-
+print(f"Connected to WRDS successfully!")
 # CRSP Block
 crsp = conn.raw_sql("""
-                      select a.permno, a.date, a.ret, a.vol, b.rf, b.mktrf, b.smb, b.hml
-                      from crsp.dsf as a
+                      select a.permno, a.dlycaldt, a.dlyret, a.dlyvol, a.dlydelflg,
+                      b.rf, b.mktrf, b.smb, b.hml
+                      from crspq.dsf_v2 as a
                       left join ff.factors_daily as b
-                      on a.date=b.date
-                      where a.date > '01/01/1959'
-                      """)
+                      on a.dlycaldt=b.date
+                      where a.dlycaldt >= '01/01/1990'
+                      """, date_cols=['dlycaldt'])
+crsp.rename(columns={'dlycaldt': 'date', 'dlyret': 'ret', 'dlyvol': 'vol'}, inplace=True)
 
 # sort variables by permno and date
 crsp = crsp.sort_values(by=['permno', 'date'])
@@ -41,22 +43,8 @@ crsp['permno'] = crsp['permno'].astype(int)
 # Line up date to be end of month
 crsp['date'] = pd.to_datetime(crsp['date'])
 
-# add delisting return
-dlret = conn.raw_sql("""
-                     select permno, dlret, dlstdt 
-                     from crsp.dsedelist
-                     """)
-
-dlret.permno = dlret.permno.astype(int)
-dlret['dlstdt'] = pd.to_datetime(dlret['dlstdt'])
-dlret['date'] = dlret['dlstdt']
-
-# merge delisting return to crsp return
-crsp = pd.merge(crsp, dlret, how='left', on=['permno', 'date'])
-crsp['dlret'] = crsp['dlret'].fillna(0)
-crsp['ret'] = crsp['ret'].fillna(0)
-crsp['retadj'] = (1 + crsp['ret']) * (1 + crsp['dlret']) - 1
-crsp['exret'] = crsp['retadj'] - crsp['rf']
+# No need to add delisting return
+crsp['exret'] = crsp['ret'] - crsp['rf']
 
 # find the closest trading day to the end of the month
 crsp['monthend'] = crsp['date'] + MonthEnd(0)
@@ -148,14 +136,26 @@ def get_res_var(df, firm_list):
                 else:
                     rolling_window = temp['permno'].count()
                     index = temp.tail(1).index
-                    X = pd.DataFrame()
-                    X[['mktrf', 'smb', 'hml']] = temp[['mktrf', 'smb', 'hml']]
-                    X['intercept'] = 1
+                    
+                    # 2025-07-13 updates: 
+                    # The old code tries to invert a matrix (X.T.dot(X)) that has dtype object, not float64.
+                    # The new code explicitly cast all values to float before converting to a numpy matrix.
+                    # X = pd.DataFrame()
+                    # X[['mktrf', 'smb', 'hml']] = temp[['mktrf', 'smb', 'hml']]
+                    # X['intercept'] = 1
+                    # X = X[['intercept', 'mktrf', 'smb', 'hml']]
+                    # X = np.mat(X)
+                    # Y = np.mat(temp[['exret']])
+                    # res = (np.identity(rolling_window) - X.dot(X.T.dot(X).I).dot(X.T)).dot(Y)
+                    # res_var = res.var(ddof=1)
+                    X = temp[['mktrf', 'smb', 'hml']].astype(float).copy()
+                    X['intercept'] = 1.0
                     X = X[['intercept', 'mktrf', 'smb', 'hml']]
-                    X = np.mat(X)
-                    Y = np.mat(temp[['exret']])
+                    X = np.asmatrix(X.values.astype(float))
+                    Y = np.asmatrix(temp[['exret']].values.astype(float))
                     res = (np.identity(rolling_window) - X.dot(X.T.dot(X).I).dot(X.T)).dot(Y)
                     res_var = res.var(ddof=1)
+
                     df.loc[index, 'rvar'] = res_var
     return df
 
@@ -220,3 +220,6 @@ crsp = crsp[['permno', 'date', 'rvar_ff3']]
 
 with open('rvar_ff3.feather', 'wb') as f:
     feather.write_feather(crsp, f)
+
+
+conn.close()

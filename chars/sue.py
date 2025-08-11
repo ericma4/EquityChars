@@ -15,7 +15,7 @@ import pyarrow.feather as feather
 # Connect to WRDS #
 ###################
 conn = wrds.Connection()
-
+print(f"Connected to WRDS successfully!")
 ###################
 # Compustat Block #
 ###################
@@ -26,7 +26,7 @@ comp = conn.raw_sql("""
                         and datafmt = 'STD'
                         and popsrc = 'D'
                         and consol = 'C'
-                        and datadate >= '01/01/1925'
+                        and datadate >= '01/01/1990'
                         """)
 
 comp['datadate'] = pd.to_datetime(comp['datadate'])
@@ -38,11 +38,10 @@ ccm = conn.raw_sql("""
                   select gvkey, lpermno as permno, linktype, linkprim, 
                   linkdt, linkenddt
                   from crsp.ccmxpf_linktable
-                  where linktype in ('LU', 'LC')
-                  """)
+                  where linktype in ('LU', 'LC', 'LS')
+                  and (linkprim ='C' or linkprim='P')
+                  """, date_cols=['linkdt', 'linkenddt'])
 
-ccm['linkdt'] = pd.to_datetime(ccm['linkdt'])
-ccm['linkenddt'] = pd.to_datetime(ccm['linkenddt'])
 # if linkenddt is missing then set to today date
 ccm['linkenddt'] = ccm['linkenddt'].fillna(pd.to_datetime('today'))
 
@@ -96,14 +95,17 @@ ccm2['sue'] = (ccm2['eps'] - ccm2['e4'])/ccm2['sue_std']
 
 # populate the quarterly sue to monthly
 crsp_msf = conn.raw_sql("""
-                        select distinct date
-                        from crsp.msf
-                        where date >= '01/01/1925'
-                        """)
+                        select distinct mthcaldt
+                        from crspq.msf_v2
+                        where mthcaldt >= '01/01/1990'
+                        """, date_cols=['mthcaldt'])
+crsp_msf.rename(columns={'mthcaldt': 'date'}, inplace=True)
 
 ccm2['datadate'] = pd.to_datetime(ccm2['datadate'])
-ccm2['plus12m'] = ccm2['datadate'] + np.timedelta64(12, 'M')
-ccm2['plus12m'] = ccm2['plus12m'] + MonthEnd(0)
+# 2025-07-13 updates: Correct way to add months to a pandas datetime column
+# ccm2['plus12m'] = ccm2['datadate'] + np.timedelta64(12, 'M')
+# ccm2['plus12m'] = ccm2['plus12m'] + MonthEnd(0)
+ccm2['plus12m'] = ccm2['datadate'] + pd.DateOffset(months=12) + MonthEnd(0)
 
 df = sqldf("""select a.*, b.date
               from ccm2 a left join crsp_msf b 
@@ -117,3 +119,6 @@ df = df[['gvkey', 'permno', 'datadate', 'date', 'sue']]
 
 with open('sue.feather', 'wb') as f:
     feather.write_feather(df, f)
+
+
+conn.close()

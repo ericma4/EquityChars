@@ -15,13 +15,15 @@ import pyarrow.feather as feather
 # Connect to WRDS #
 ###################
 conn = wrds.Connection()
+print(f"Connected to WRDS successfully!")
 
 #########################################################################
 # Merging IBES and CRSP by using ICLINK table. Merging last month price #
 #########################################################################
 
-with open('iclink.feather', 'rb')as f:
+with open('iclink_ciz.feather', 'rb')as f:
     iclink = feather.read_feather(f)
+iclink.rename(columns={'issuernm': 'comnam'}, inplace=True)
 
 ibes = conn.raw_sql("""
                          select
@@ -42,9 +44,10 @@ ibes['statpers'] = pd.to_datetime(ibes['statpers'])
 ibes['merge_date'] = ibes['statpers']+MonthEnd(0)
 
 crsp_msf = conn.raw_sql("""
-                        select permno, date, prc, cfacpr
-                        from crsp.msf
-                        """)
+                        select permno, mthcaldt, mthprc, mthcumfacpr
+                        from crspq.msf_v2
+                        """, date_cols=['mthcaldt'])
+crsp_msf.rename(columns={'mthcaldt': 'date', 'mthprc': 'prc', 'mthcumfacpr': 'cfacpr'}, inplace=True)
 
 crsp_msf['date'] = pd.to_datetime(crsp_msf['date'])
 crsp_msf['date'] = crsp_msf['date']+MonthEnd(0)
@@ -58,15 +61,24 @@ ibes_crsp.reset_index(inplace=True, drop=True)
 ###############################
 # Merging last month forecast #
 ###############################
-ibes_crsp['statpers_last_month'] = np.where((ibes_crsp['ticker'] == ibes_crsp['ticker'].shift(1)) &
-                                            (ibes_crsp['permno'] == ibes_crsp['permno'].shift(1)) &
-                                            (ibes_crsp['fpedats'] == ibes_crsp['fpedats'].shift(1)),
-                                            ibes_crsp['statpers'].shift(1).astype(str), np.nan)
+# ibes_crsp['statpers_last_month'] = np.where((ibes_crsp['ticker'] == ibes_crsp['ticker'].shift(1)) &
+#                                             (ibes_crsp['permno'] == ibes_crsp['permno'].shift(1)) &
+#                                             (ibes_crsp['fpedats'] == ibes_crsp['fpedats'].shift(1)),
+#                                             ibes_crsp['statpers'].shift(1).astype(str), np.nan)
 
-ibes_crsp['meanest_last_month'] = np.where((ibes_crsp['ticker'] == ibes_crsp['ticker'].shift(1)) &
-                                            (ibes_crsp['permno'] == ibes_crsp['permno'].shift(1)) &
-                                            (ibes_crsp['fpedats'] == ibes_crsp['fpedats'].shift(1)),
-                                            ibes_crsp['meanest'].shift(1), np.nan)
+# ibes_crsp['meanest_last_month'] = np.where((ibes_crsp['ticker'] == ibes_crsp['ticker'].shift(1)) &
+#                                             (ibes_crsp['permno'] == ibes_crsp['permno'].shift(1)) &
+#                                             (ibes_crsp['fpedats'] == ibes_crsp['fpedats'].shift(1)),
+#                                             ibes_crsp['meanest'].shift(1), np.nan)
+
+# 2025-07-13 updates: Use .fillna(False) to convert ambiguous booleans to False when appropriate.
+mask = (
+    ibes_crsp['ticker'].eq(ibes_crsp['ticker'].shift(1)).fillna(False) &
+    ibes_crsp['permno'].eq(ibes_crsp['permno'].shift(1)).fillna(False) &
+    ibes_crsp['fpedats'].eq(ibes_crsp['fpedats'].shift(1)).fillna(False)
+)
+ibes_crsp['statpers_last_month'] = np.where(mask, ibes_crsp['statpers'].shift(1).astype(str), np.nan)
+ibes_crsp['meanest_last_month'] = np.where(mask, ibes_crsp['meanest'].shift(1), np.nan)
 
 ibes_crsp.sort_values(by=['ticker', 'permno', 'fpedats', 'statpers'], inplace=True)
 ibes_crsp.reset_index(inplace=True, drop=True)
@@ -119,3 +131,6 @@ ibes_crsp.rename(columns={'statpers': 'date'}, inplace=True)
 
 with open('myre.feather', 'wb') as f:
     feather.write_feather(ibes_crsp, f)
+
+
+conn.close()

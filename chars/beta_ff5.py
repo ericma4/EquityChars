@@ -22,15 +22,19 @@ import multiprocessing as mp
 # Connect to WRDS #
 ###################
 conn = wrds.Connection()
+print(f"Connected to WRDS successfully!")
 
 # CRSP Block
 crsp = conn.raw_sql("""
-                      select a.permno, a.date, a.ret, a.vol, b.rf, b.mktrf, b.smb, b.hml, b.umd, b.rmw, b.cma
-                      from crsp.dsf as a
+                      select a.permno, a.dlycaldt, a.dlyret, a.dlyvol, b.rf, b.mktrf, b.smb, b.hml, b.umd, b.rmw, b.cma
+                      from crspq.dsf_v2 as a
                       left join ff_all.fivefactors_daily as b
-                      on a.date=b.date
-                      where a.date > '01/01/1959'
-                      """)
+                      on a.dlycaldt=b.date
+                      where a.dlycaldt >= '01/01/1990'
+                      """, date_cols=['dlycaldt'])
+
+crsp.rename(columns={'dlycaldt': 'date', 'dlyret': 'ret',
+            'dlyvol': 'vol'}, inplace=True)
 
 # sort variables by permno and date
 crsp = crsp.sort_values(by=['permno', 'date'])
@@ -41,22 +45,8 @@ crsp['permno'] = crsp['permno'].astype(int)
 # Line up date to be end of month
 crsp['date'] = pd.to_datetime(crsp['date'])
 
-# add delisting return
-dlret = conn.raw_sql("""
-                     select permno, dlret, dlstdt 
-                     from crsp.dsedelist
-                     """)
-
-dlret.permno = dlret.permno.astype(int)
-dlret['dlstdt'] = pd.to_datetime(dlret['dlstdt'])
-dlret['date'] = dlret['dlstdt']
-
-# merge delisting return to crsp return
-crsp = pd.merge(crsp, dlret, how='left', on=['permno', 'date'])
-crsp['dlret'] = crsp['dlret'].fillna(0)
-crsp['ret'] = crsp['ret'].fillna(0)
-crsp['retadj'] = (1 + crsp['ret']) * (1 + crsp['dlret']) - 1
-crsp['exret'] = crsp['retadj'] - crsp['rf']
+# No need to add delisting return
+crsp['exret'] = crsp['ret'] - crsp['rf']
 
 # find the closest trading day to the end of the month
 crsp['monthend'] = crsp['date'] + MonthEnd(0)
@@ -77,7 +67,8 @@ month_num = month_num.astype(int)
 month_num = month_num.reset_index(drop=True)
 
 # mark the number of each month to each day of this month
-crsp['month_count'] = crsp.groupby(['permno'])['month_count'].fillna(method='bfill')
+crsp['month_count'] = crsp.groupby(
+    ['permno'])['month_count'].fillna(method='bfill')
 
 # crate a firm list
 df_firm = crsp.drop_duplicates(['permno'])
@@ -100,31 +91,31 @@ def get_beta(df, firm_list):
     :param firm_list: list of firms matching stock dataframe
     :return: dataframe with variance of residual
     """
-    beta_cols = ['beta_mktrf', 'beta_smb', 'beta_hml', 'beta_rmw', 'beta_cma']
     for firm, count, prog in zip(firm_list['permno'], firm_list['month_num'], range(firm_list['permno'].count()+1)):
         prog = prog + 1
-        print('processing permno %s' % firm, '/', 'finished', '%.2f%%' % ((prog/firm_list['permno'].count())*100))
+        print('processing permno %s' % firm, '/', 'finished', '%.2f%%' %
+              ((prog/firm_list['permno'].count())*100))
         for i in range(count + 1):
             # if you want to change the rolling window, please change here: i - 2 means 3 months is a window.
-            temp = df[(df['permno'] == firm) & (i - 2 <= df['month_count']) & (df['month_count'] <= i)]
+            temp = df[(df['permno'] == firm) & (
+                i - 2 <= df['month_count']) & (df['month_count'] <= i)]
             # if observations in last 3 months are less 21, we drop the rvar of this month
             if temp['permno'].count() < 21:
-                continue  # Skip if not enough observations
-            
-            if temp['vol'].notna().sum() < 21:
-                continue  # Skip if not enough volume data
-                
-            if temp['exret'].isna().any():
-                continue  # Skip if any NA values in excess returns
-            
-            rolling_window = temp['permno'].count()
-            index = temp.tail(1).index
-            X = np.array(temp[['mktrf', 'smb', 'hml', 'rmw', 'cma']], dtype=np.float64)
-            Y = np.array(temp[['exret']], dtype=np.float64)
-            ones = np.ones((rolling_window, 1), dtype=np.float64)
-            M = np.eye(rolling_window) - ones.dot(ones.T) / rolling_window
-            beta = np.linalg.solve(X.T.dot(M).dot(X), X.T.dot(M).dot(Y)) 
-            df.loc[index, beta_cols] = beta.flatten()
+                pass
+            else:
+                if temp['vol'].notna().sum() < 21:
+                    pass
+                else:
+                    rolling_window = temp['permno'].count()
+                    index = temp.tail(1).index
+                    X = np.array(temp[['mktrf', 'smb', 'hml', 'rmw', 'cma']])
+                    Y = np.array(temp[['exret']])
+                    ones = np.ones((rolling_window, 1))
+                    M = np.eye(rolling_window) - \
+                        ones.dot(ones.T) / rolling_window
+                    beta = np.linalg.solve(
+                        X.T.dot(M).dot(X), X.T.dot(M).dot(Y))
+                    df.loc[index, 'beta'] = beta
     return df
 
 
@@ -139,14 +130,16 @@ def sub_df(start, end, step):
     # we use dict to store different sub dataframe
     temp = {}
     for i, h in zip(np.arange(start, end, step), range(int((end-start)/step))):
-        print('processing splitting dataframe:', round(i, 2), 'to', round(i + step, 2))
+        print('processing splitting dataframe:',
+              round(i, 2), 'to', round(i + step, 2))
         if i == 0:  # to get the left point
-            temp['firm' + str(h)] = df_firm[df_firm['count'] <= df_firm['count'].quantile(i + step)]
+            temp['firm' + str(h)] = df_firm[df_firm['count']
+                                            <= df_firm['count'].quantile(i + step)]
             temp['crsp' + str(h)] = pd.merge(crsp, temp['firm' + str(h)], how='left',
                                              on='permno').dropna(subset=['count'])
         else:
             temp['firm' + str(h)] = df_firm[(df_firm['count'].quantile(i) < df_firm['count']) & (
-                    df_firm['count'] <= df_firm['count'].quantile(i + step))]
+                df_firm['count'] <= df_firm['count'].quantile(i + step))]
             temp['crsp' + str(h)] = pd.merge(crsp, temp['firm' + str(h)], how='left',
                                              on='permno').dropna(subset=['count'])
     return temp
@@ -164,7 +157,8 @@ def main(start, end, step):
     pool = mp.Pool()
     p_dict = {}
     for i in range(int((end-start)/step)):
-        p_dict['p' + str(i)] = pool.apply_async(get_beta, (df['crsp%s' % i], df['firm%s' % i],))
+        p_dict['p' + str(i)] = pool.apply_async(get_beta,
+                                                (df['crsp%s' % i], df['firm%s' % i],))
     pool.close()
     pool.join()
     result = pd.DataFrame()
@@ -181,9 +175,9 @@ if __name__ == '__main__':
     crsp = main(0, 1, 0.05)
 
 # process dataframe
-crsp = crsp.dropna(subset=['beta_mktrf'])  # drop NA due to rolling
+crsp = crsp.dropna(subset=['beta'])  # drop NA due to rolling
 crsp = crsp.reset_index(drop=True)
-crsp = crsp[['permno', 'date', 'beta_mktrf', 'beta_smb', 'beta_hml', 'beta_rmw', 'beta_cma']]
+crsp = crsp[['permno', 'date', 'beta']]
 
 with open('beta_ff5.feather', 'wb') as f:
     feather.write_feather(crsp, f)

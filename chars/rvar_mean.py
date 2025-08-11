@@ -15,13 +15,14 @@ import multiprocessing as mp
 # Connect to WRDS #
 ###################
 conn = wrds.Connection()
-
+print(f"Connected to WRDS successfully!")
 # CRSP Block
 crsp = conn.raw_sql("""
-                    select permno, date, ret, vol
-                    from crsp.dsf
-                    where date >= '01/01/1959'
-                    """)
+                    select permno, dlycaldt, dlyret, dlyvol, dlydelflg
+                    from crspq.dsf_v2
+                    where dlycaldt >= '01/01/1990'
+                    """, date_cols=['dlycaldt'])
+crsp.rename(columns={'dlycaldt': 'date', 'dlyret': 'ret', 'dlyvol': 'vol'}, inplace=True)
 
 # sort variables by permno and date
 crsp = crsp.sort_values(by=['permno', 'date'])
@@ -32,22 +33,8 @@ crsp['permno'] = crsp['permno'].astype(int)
 # Line up date to be end of month
 crsp['date'] = pd.to_datetime(crsp['date'])
 
-# add delisting return
-dlret = conn.raw_sql("""
-                     select permno, dlret, dlstdt 
-                     from crsp.dsedelist
-                     """)
-
-dlret.permno = dlret.permno.astype(int)
-dlret['dlstdt'] = pd.to_datetime(dlret['dlstdt'])
-dlret['date'] = dlret['dlstdt']
-
-# merge delisting return to crsp return
-crsp = pd.merge(crsp, dlret, how='left', on=['permno', 'date'])
-crsp['dlret'] = crsp['dlret'].fillna(0)
-crsp['ret'] = crsp['ret'].fillna(0)
-crsp['retadj'] = (1 + crsp['ret']) * (1 + crsp['dlret']) - 1
-# crsp['exret'] = crsp['retadj'] - crsp['rf']
+# No need to add delisting return
+# crsp['exret'] = crsp['ret'] - crsp['rf']
 
 # find the closest trading day to the end of the month
 crsp['monthend'] = crsp['date'] + MonthEnd(0)
@@ -169,3 +156,6 @@ crsp = crsp[['permno', 'date', 'rvar_mean']]
 
 with open('rvar_mean.feather', 'wb') as f:
     feather.write_feather(crsp, f)
+
+
+conn.close()

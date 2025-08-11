@@ -21,14 +21,17 @@ import multiprocessing as mp
 ###################
 # Connect to WRDS #
 ###################
-conn = wrds.Connection()
+# conn = wrds.Connection()
+conn = wrds.Connection(wrds_username='phd22jm', wrds_password='jmwarwickap1998!')
+print(f"Connected to WRDS successfully!")
 
 # CRSP Block
 crsp = conn.raw_sql("""
-                    select a.permno, a.date, a.vol, a.shrout
-                    from crsp.dsf as a
-                    where a.date > '01/01/1959'
-                    """)
+                    select a.permno, a.dlycaldt, a.dlyvol, a.shrout
+                    from crspq.dsf_v2 as a
+                    where a.dlycaldt >= '01/01/1990'
+                    """, date_cols=['dlycaldt'])
+crsp.rename(columns={'dlycaldt': 'date', 'dlyvol': 'vol'}, inplace=True)
 
 # sort variables by permno and date
 crsp = crsp.sort_values(by=['permno', 'date'])
@@ -167,3 +170,6 @@ crsp = crsp[['permno', 'date', 'zerotrade']]
 
 with open('zerotrade.feather', 'wb') as f:
     feather.write_feather(crsp, f)
+
+
+conn.close()

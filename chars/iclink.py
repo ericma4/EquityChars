@@ -62,10 +62,12 @@ _ibes2 = _ibes2.loc[_ibes2.sdates == _ibes2.ldate].drop(['sdates'], axis=1)
 
 # 1.2 CRSP: Get all permno-ncusip combinations
 _crsp1 = conn.raw_sql("""
-                      select permno, ncusip, comnam, namedt, nameenddt
-                      from crsp.stocknames
-                      where ncusip != ''
+                      select permno, cusip, issuernm, namedt, nameenddt
+                      from crsp.stocknames_v2
+                      where cusip != ''
+                      and permno = 14593
                       """)
+_crsp1.rename(columns={'cusip':'ncusip', 'issuernm':'comnam'}, inplace=True)
 
 # first namedt
 _crsp1_fnamedt = _crsp1.groupby(['permno','ncusip']).namedt.min().reset_index()
@@ -169,8 +171,9 @@ _nomatch3 = _nomatch3.loc[_nomatch3.sdates == _nomatch3.ldate]
 
 # Get entire list of CRSP stocks with Exchange Ticker information
 
-_crsp_n1 = conn.raw_sql(""" select ticker, comnam, permno, ncusip, namedt, nameenddt
-                            from crsp.stocknames """)
+_crsp_n1 = conn.raw_sql(""" select ticker, issuernm, permno, cusip, namedt, nameenddt
+                            from crsp.stocknames_v2 """)
+_crsp_n1.rename(columns={'issuernm':'comnam', 'cusip':'ncusip'}, inplace=True)
 
 _crsp_n1 = _crsp_n1.loc[_crsp_n1.ticker.notna()].sort_values(by=['permno','ticker','namedt'])
 
@@ -233,10 +236,15 @@ _link2_3 = _link2_3[['ticker','permno','cname','comnam','score']].drop_duplicate
 #####################################
 # Combine the output from both linking procedures. Store the output data for future usage
 
-iclink = _link1_2.append(_link2_3)
+# 2025-07-13 updates: using pd.concat() in pandas 2.0
+# iclink = _link1_2.append(_link2_3)
+iclink = pd.concat([_link1_2, _link2_3], ignore_index=True)
 
 # Storing iclink for other program usage
 import pickle as pkl
 
 with open('iclink.feather', 'wb') as f:
     feather.write_feather(iclink, f)
+
+f.close()
+conn.close()

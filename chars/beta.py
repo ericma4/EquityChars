@@ -22,15 +22,19 @@ import multiprocessing as mp
 # Connect to WRDS #
 ###################
 conn = wrds.Connection()
+print(f"Connected to WRDS successfully!")
 
 # CRSP Block
 crsp = conn.raw_sql("""
-                      select a.permno, a.date, a.ret, a.vol, b.rf, b.mktrf, b.smb, b.hml
-                      from crsp.dsf as a
+                      select a.permno, a.dlycaldt, a.dlyret, a.dlyvol, a.dlydelflg,
+                      b.rf, b.mktrf, b.smb, b.hml
+                      from crspq.dsf_v2 as a
                       left join ff.factors_daily as b
-                      on a.date=b.date
-                      where a.date > '01/01/1959'
-                      """)
+                      on a.dlycaldt=b.date
+                      where a.dlycaldt >= '01/01/1990'
+                      """, date_cols=['dlycaldt'])
+
+crsp.rename(columns={'dlycaldt': 'date', 'dlyret': 'ret', 'dlyvol': 'vol'}, inplace=True)
 
 # sort variables by permno and date
 crsp = crsp.sort_values(by=['permno', 'date'])
@@ -41,22 +45,8 @@ crsp['permno'] = crsp['permno'].astype(int)
 # Line up date to be end of month
 crsp['date'] = pd.to_datetime(crsp['date'])
 
-# add delisting return
-dlret = conn.raw_sql("""
-                     select permno, dlret, dlstdt 
-                     from crsp.dsedelist
-                     """)
-
-dlret.permno = dlret.permno.astype(int)
-dlret['dlstdt'] = pd.to_datetime(dlret['dlstdt'])
-dlret['date'] = dlret['dlstdt']
-
-# merge delisting return to crsp return
-crsp = pd.merge(crsp, dlret, how='left', on=['permno', 'date'])
-crsp['dlret'] = crsp['dlret'].fillna(0)
-crsp['ret'] = crsp['ret'].fillna(0)
-crsp['retadj'] = (1 + crsp['ret']) * (1 + crsp['dlret']) - 1
-crsp['exret'] = crsp['retadj'] - crsp['rf']
+# No need to add delisting return
+crsp['exret'] = crsp['ret'] - crsp['rf']
 
 # find the closest trading day to the end of the month
 crsp['monthend'] = crsp['date'] + MonthEnd(0)
@@ -108,22 +98,19 @@ def get_beta(df, firm_list):
             temp = df[(df['permno'] == firm) & (i - 2 <= df['month_count']) & (df['month_count'] <= i)]
             # if observations in last 3 months are less 21, we drop the rvar of this month
             if temp['permno'].count() < 21:
-                continue  # Skip if not enough observations
-            
-            if temp['vol'].notna().sum() < 21:
-                continue  # Skip if not enough volume data
-                
-            if temp['exret'].isna().any():
-                continue  # Skip if any NA values in excess returns
-            
-            rolling_window = temp['permno'].count()
-            index = temp.tail(1).index
-            X = np.array(temp[['mktrf']], dtype=np.float64)
-            Y = np.array(temp[['exret']], dtype=np.float64)
-            ones = np.ones((rolling_window, 1), dtype=np.float64)
-            M = np.eye(rolling_window) - ones.dot(ones.T) / rolling_window
-            beta = np.linalg.solve(X.T.dot(M).dot(X), X.T.dot(M).dot(Y)) 
-            df.loc[index, 'beta'] = beta
+                pass
+            else:
+                if temp['vol'].notna().sum() < 21:
+                    pass
+                else:
+                    rolling_window = temp['permno'].count()
+                    index = temp.tail(1).index
+                    X = np.array(temp[['mktrf']])
+                    Y = np.array(temp[['exret']])
+                    ones = np.ones((rolling_window, 1))
+                    M = np.eye(rolling_window) - ones.dot(ones.T) / rolling_window
+                    beta = np.linalg.solve(X.T.dot(M).dot(X), X.T.dot(M).dot(Y)) 
+                    df.loc[index, 'beta'] = beta
     return df
 
 
@@ -186,3 +173,6 @@ crsp = crsp[['permno', 'date', 'beta']]
 
 with open('beta.feather', 'wb') as f:
     feather.write_feather(crsp, f)
+
+
+conn.close()

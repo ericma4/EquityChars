@@ -25,12 +25,13 @@ conn = wrds.Connection()
 
 # CRSP Block
 crsp = conn.raw_sql("""
-                    select a.permno, a.date, a.ret, (a.ret - b.rf) as exret, a.askhi, a.bidlo, a.vol
-                    from crsp.dsf as a
+                    select a.permno, a.dlycaldt, a.dlyret, (a.dlyret - b.rf) as exret, a.dlyhigh, a.dlylow, a.dlyvol, a.dlydelflg
+                    from crspq.dsf_v2 as a
                     left join ff.factors_daily as b
-                    on a.date=b.date
-                    where a.date > '01/01/1959'
-                    """)
+                    on a.dlycaldt=b.date
+                    where a.dlycaldt >= '01/01/1990'
+                    """, date_cols=['dlycaldt'])
+crsp.rename(columns={'dlycaldt': 'date', 'dlyret': 'ret', 'dlyhigh': 'askhi', 'dlylow': 'bidlo', 'dlyvol': 'vol'}, inplace=True)
 
 # sort variables by permno and date
 crsp = crsp.sort_values(by=['permno', 'date'])
@@ -162,3 +163,6 @@ crsp = crsp[['permno', 'date', 'baspread']]
 
 with open('baspread.feather', 'wb') as f:
     feather.write_feather(crsp, f)
+
+
+conn.close()

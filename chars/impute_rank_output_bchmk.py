@@ -11,6 +11,7 @@ from functions import *
 with open('chars_q_raw.feather', 'rb') as f:
     chars_q = feather.read_feather(f)
 
+
 chars_q = chars_q.dropna(subset=['permno'])
 chars_q['permno'] = chars_q['permno'].astype(int)
 chars_q['jdate'] = pd.to_datetime(chars_q['jdate'])
@@ -19,13 +20,14 @@ chars_q = chars_q.drop_duplicates(['permno', 'jdate'])
 with open('chars_a_raw.feather', 'rb') as f:
     chars_a = feather.read_feather(f)
 
+
 chars_a = chars_a.dropna(subset=['permno'])
 chars_a['permno'] = chars_a['permno'].astype(int)
 chars_a['jdate'] = pd.to_datetime(chars_a['jdate'])
 chars_a = chars_a.drop_duplicates(['permno', 'jdate'])
 
 # information list
-obs_var_list = ['gvkey', 'permno', 'jdate', 'ticker', 'conm', 'comnam', 'sic', 'ret', 'retx', 'retadj', 'exchcd', 'shrcd', 'prc', 'shrout']
+obs_var_list = ['gvkey', 'permno', 'jdate', 'ticker', 'conm', 'comnam', 'sic', 'ret', 'retx', 'prc', 'shrout']
 # characteristics with quarterly and annual frequency at the same time
 accounting_var_list = ['datadate', 'acc', 'bm', 'agr', 'alm', 'ato',  'cash', 'cashdebt', 'cfp', 'chcsho',
                        'chtx', 'depr', 'ep', 'gma', 'grltnoa', 'lev', 'lgr', 'ni', 'noa', 'op', 'pctacc', 'pm',
@@ -60,7 +62,7 @@ df_a = df_a.sort_values(obs_var_list)
 df_q = chars_q[obs_var_list + accounting_var_list + q_only_list]
 df_q.columns = obs_var_list + q_var_list + q_only_list
 # drop the same information columns for merging
-df_q = df_q.drop(['sic', 'ret', 'retx', 'retadj', 'exchcd', 'shrcd', 'ticker', 'conm', 'comnam', 'prc', 'shrout'], axis=1)
+df_q = df_q.drop(['sic', 'ret', 'retx', 'ticker', 'conm', 'comnam', 'prc', 'shrout'], axis=1)
 
 df = df_a.merge(df_q, how='left', on=['gvkey', 'jdate', 'permno'])
 
@@ -93,8 +95,7 @@ for i in tqdm(accounting_var_list[1:]):
 df = df.drop(['a_datadate', 'q_datadate'], axis=1)
 
 # drop optional variables, you can adjust it by your selection
-df = df.drop(['ret', 'retx'], axis=1)
-df = df.rename(columns={'retadj': 'ret'})  # retadj is return adjusted by dividend
+df = df.drop(['retx'], axis=1)
 df = df.sort_values(by=['permno', 'jdate'])
 df['ret'] = df.groupby(['permno'])['ret'].shift(-1)  # we shift return in t period to t+1 for prediction
 df['date'] = df.groupby(['permno'])['jdate'].shift(-1)  # date is return date, jdate is predictor date
@@ -110,6 +111,7 @@ df['sic'] = df['sic'].astype(int)
 # save raw data
 with open('chars_raw_no_impute.feather', 'wb') as f:
     feather.write_feather(df, f)
+
 
 # impute missing values, you can choose different func form functions.py, such as ffi49/ffi10
 df_impute = df.copy()
@@ -134,6 +136,7 @@ df_impute['re'] = df_impute['re'].fillna(0)  # re use IBES database, there are l
 with open('chars_raw_imputed.feather', 'wb') as f:
     feather.write_feather(df_impute, f)
 
+
 # standardize raw data
 df_rank = df.copy()
 df_rank['lag_me'] = df_rank['me']
@@ -147,6 +150,7 @@ df_rank.replace([-np.inf, np.inf], 0, inplace=True)  # some firm does not have m
 
 with open('chars_rank_no_impute.feather', 'wb') as f:
     feather.write_feather(df_rank, f)
+
 
 # standardize imputed data
 # df_rank = df_impute.copy()

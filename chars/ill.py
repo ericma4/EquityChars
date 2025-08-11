@@ -22,13 +22,16 @@ import multiprocessing as mp
 # Connect to WRDS #
 ###################
 conn = wrds.Connection()
+print(f"Connected to WRDS successfully!")
 
 # CRSP Block
 crsp = conn.raw_sql("""
-                    select a.permno, a.date, a.ret, a.vol, a.prc
-                    from crsp.dsf as a
-                    where a.date > '01/01/1959'
-                    """)
+                    select a.permno, a.dlycaldt, a.dlyret, a.dlyvol, a.dlyprc, a.dlydelflg
+                    from crspq.dsf_v2 as a
+                    where a.dlycaldt >= '01/01/1990'
+                    """, date_cols=['dlycaldt'])
+
+crsp.rename(columns={'dlycaldt': 'date', 'dlyret': 'ret', 'dlyvol': 'vol', 'dlyprc': 'prc'}, inplace=True)
 
 # sort variables by permno and date
 crsp = crsp.sort_values(by=['permno', 'date'])
@@ -39,21 +42,7 @@ crsp['permno'] = crsp['permno'].astype(int)
 # Line up date to be end of month
 crsp['date'] = pd.to_datetime(crsp['date'])
 
-# add delisting return
-dlret = conn.raw_sql("""
-                     select permno, dlret, dlstdt 
-                     from crsp.dsedelist
-                     """)
-
-dlret.permno = dlret.permno.astype(int)
-dlret['dlstdt'] = pd.to_datetime(dlret['dlstdt'])
-dlret['date'] = dlret['dlstdt']
-
-# merge delisting return to crsp return
-crsp = pd.merge(crsp, dlret, how='left', on=['permno', 'date'])
-crsp['dlret'] = crsp['dlret'].fillna(0)
-crsp['ret'] = crsp['ret'].fillna(0)
-crsp['retadj'] = (1 + crsp['ret']) * (1 + crsp['dlret']) - 1
+# No need to add delisting return
 
 # find the closest trading day to the end of the month
 crsp['monthend'] = crsp['date'] + MonthEnd(0)
@@ -111,8 +100,8 @@ def get_baspread(df, firm_list):
                 else:
                     index = temp.tail(1).index
                     X = pd.DataFrame()
-                    X[['vol', 'prc', 'retadj']] = temp[['vol', 'prc', 'retadj']]
-                    ill = ( abs(X['retadj']) / (abs(X['prc']) * X['vol']) ).mean() ##### Fixed bug on 2025.02.21 #####
+                    X[['vol', 'prc', 'ret']] = temp[['vol', 'prc', 'ret']]
+                    ill = ( abs(X['ret']) / (abs(X['prc']) * X['vol']) ).mean() ##### Fixed bug on 2025.02.21 #####
                     df.loc[index, 'ill'] = ill
     return df
 
@@ -176,3 +165,6 @@ crsp = crsp[['permno', 'date', 'ill']]
 
 with open('ill.feather', 'wb') as f:
     feather.write_feather(crsp, f)
+
+
+conn.close()
