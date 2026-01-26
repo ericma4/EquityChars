@@ -254,7 +254,7 @@ data_rawa = data_rawa.with_columns([
 ])
 
 # # deal with the duplicates
-@todo: check if there are any duplicates with full data
+# @todo: check if there are any duplicates with full data
 # data_rawa.filter(data_rawa.is_duplicated))
 
 # # Keep first occurrence within each group
@@ -364,10 +364,10 @@ data_rawa = data_rawa.with_columns([
         (((pl.col('act') - pl.col('act_l1')) - (pl.col('che') - pl.col('che_l1')) -
           (pl.col('lct') - pl.col('lct_l1')) + (pl.col('dlc') - pl.col('dlc_l1')) +
           (pl.col('txp') - pl.col('txp_l1')).fill_null(0) - pl.col('dp')) / 
-         ((pl.col('at') + pl.col('at_l1')) / 2))
+         ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None))
       )
       .otherwise(
-        (pl.col('ib') - pl.col('oancf')) / ((pl.col('at') + pl.col('at_l1')) / 2)
+        (pl.col('ib') - pl.col('oancf')) / ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None)
       )
       .alias('acc')
 ])
@@ -379,7 +379,7 @@ data_rawa = data_rawa.with_columns([
 
 # agr
 data_rawa = data_rawa.with_columns([
-    ((pl.col('at') - pl.col('at_l1')) / pl.col('at_l1')).alias('agr')
+    ((pl.col('at') - pl.col('at_l1')) / pl.col('at_l1').replace(0, None)).alias('agr')
 ])
 
 # bm
@@ -428,7 +428,7 @@ data_rawa = data_rawa.with_columns([
       .when(pl.col('be').is_null())
       .then(None)
       .otherwise(
-        (pl.col('revt') - pl.col('cogs0') - pl.col('xsga0') - pl.col('xint0')) / pl.col('be')
+        (pl.col('revt') - pl.col('cogs0') - pl.col('xsga0') - pl.col('xint0')) / pl.col('be').replace(0, None)
       )
       .alias('op')
 ])
@@ -441,7 +441,7 @@ data_rawa = data_rawa.with_columns([
 
 # cash
 data_rawa = data_rawa.with_columns([
-    (pl.col('che') / pl.col('at')).alias('cash')
+    (pl.col('che') / pl.col('at').replace(0, None)).alias('cash')
 ])
 
 # lev
@@ -452,7 +452,7 @@ data_rawa = data_rawa.with_columns([
 
 # rd_sale
 data_rawa = data_rawa.with_columns([
-    pl.col('xrd') / pl.col('sale').alias('rd_sale')
+    (pl.col('xrd') / pl.col('sale').replace(0, None)).alias('rd_sale')
 ])
 
 # rdm
@@ -463,12 +463,12 @@ data_rawa = data_rawa.with_columns([
 
 # gma
 data_rawa = data_rawa.with_columns([
-    ((pl.col('revt') - pl.col('cogs')) / pl.col('at_l1')).alias('gma')
+    ((pl.col('revt') - pl.col('cogs')) / pl.col('at_l1').replace(0, None)).alias('gma')
 ])
 
 # chcsho
 data_rawa = data_rawa.with_columns([
-    ((pl.col('csho') / pl.col('csho_l1')) - 1).alias('chcsho')
+    ((pl.col('csho') / pl.col('csho_l1').replace(0, None)) - 1).alias('chcsho')
 ])
 
 # lgr
@@ -477,7 +477,7 @@ data_rawa = data_rawa.with_columns([
 ])
 
 data_rawa = data_rawa.with_columns([
-    ((pl.col('lt') / pl.col('lt_l1')) - 1).alias('lgr')
+    ((pl.col('lt') / pl.col('lt_l1').replace(0, None)) - 1).alias('lgr')
 ])
 
 #################### Follow Hafzalla, Lundholm, and Van Winkle (2011) and GHZ on 2025.02.28 ####################
@@ -498,14 +498,14 @@ data_rawa = data_rawa.with_columns([
           ((pl.col('txp') - pl.col('txp_l1')).fill_null(0) - pl.col('dp')))) / 0.01
       )
       .otherwise(
-        (pl.col('ib') - pl.col('oancf')) / pl.col('ib').abs()
+        (pl.col('ib') - pl.col('oancf')) / pl.col('ib').replace(0, None).abs()
       )
       .alias('pctacc')
 ])
 
 # sgr
 data_rawa = data_rawa.with_columns([
-    ((pl.col('sale') / pl.col('sale_l1')) - 1).alias('sgr')
+    ((pl.col('sale') / pl.col('sale_l1').replace(0, None)) - 1).alias('sgr')
 ])
 
 # chato
@@ -513,8 +513,8 @@ data_rawa = data_rawa.with_columns([
     pl.col('at').shift(2).over('permno').alias('at_l2')
 ])
 data_rawa = data_rawa.with_columns([
-    ((pl.col('sale') / ((pl.col('at') + pl.col('at_l1')) / 2)) -
-     (pl.col('sale_l1') / ((pl.col('at') + pl.col('at_l2')) / 2))).alias('chato')
+    ((pl.col('sale') / ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None)) -
+     (pl.col('sale_l1') / ((pl.col('at') + pl.col('at_l2')) / 2).replace(0, None))).alias('chato')
 ])
 
 # chtx
@@ -522,7 +522,7 @@ data_rawa = data_rawa.with_columns([
     pl.col('txt').shift(1).over('permno').alias('txt_l1')
 ])
 data_rawa = data_rawa.with_columns([
-    ((pl.col('txt') - pl.col('txt_l1')) / pl.col('at_l1')).alias('chtx')
+    ((pl.col('txt') - pl.col('txt_l1')) / pl.col('at_l1').replace(0, None)).alias('chtx')
 ])
 
 # noa
@@ -530,7 +530,7 @@ data_rawa = data_rawa.with_columns([
     (((pl.col('at') - pl.col('che') - pl.col('ivao').fill_null(0)) -
       (pl.col('at') - pl.col('dlc').fill_null(0) - pl.col('dltt').fill_null(0) - 
        pl.col('mib').fill_null(0) - pl.col('pstk').fill_null(0) - pl.col('ceq'))) / 
-     pl.col('at_l1')).alias('noa')
+     pl.col('at_l1').replace(0, None)).alias('noa')
 ])
 
 # rna
@@ -538,22 +538,22 @@ data_rawa = data_rawa.with_columns([
     pl.col('noa').shift(1).over('permno').alias('noa_l1')
 ])
 data_rawa = data_rawa.with_columns([
-    (pl.col('oiadp') / pl.col('noa_l1')).alias('rna')
+    (pl.col('oiadp') / pl.col('noa_l1').replace(0, None)).alias('rna')
 ])
 
 # pm
 data_rawa = data_rawa.with_columns([
-    (pl.col('oiadp') / pl.col('sale')).alias('pm')
+    (pl.col('oiadp') / pl.col('sale').replace(0, None)).alias('pm')
 ])
 
 # ato
 data_rawa = data_rawa.with_columns([
-    (pl.col('sale') / pl.col('noa_l1')).alias('ato')
+    (pl.col('sale') / pl.col('noa_l1').replace(0, None)).alias('ato')
 ])
 
 # depr
 data_rawa = data_rawa.with_columns([
-    (pl.col('dp') / pl.col('ppent')).alias('depr')
+    (pl.col('dp') / pl.col('ppent').replace(0, None)).alias('depr')
 ])
 
 # invest
@@ -565,11 +565,11 @@ data_rawa = data_rawa.with_columns([
     pl.when(pl.col('ppegt').is_null())
       .then(
         ((pl.col('ppent') - pl.col('ppent_l1')) + 
-         (pl.col('invt') - pl.col('invt_l1'))) / pl.col('at_l1')
+         (pl.col('invt') - pl.col('invt_l1'))) / pl.col('at_l1').replace(0, None)
       )
       .otherwise(
         ((pl.col('ppegt') - pl.col('ppent_l1')) + 
-         (pl.col('invt') - pl.col('invt_l1'))) / pl.col('at_l1')
+         (pl.col('invt') - pl.col('invt_l1'))) / pl.col('at_l1').replace(0, None)
       )
       .alias('invest')
 ])
@@ -579,24 +579,26 @@ data_rawa = data_rawa.with_columns([
     pl.col('ceq').shift(1).over('permno').alias('ceq_l1')
 ])
 data_rawa = data_rawa.with_columns([
-    ((pl.col('ceq') - pl.col('ceq_l1')) / pl.col('ceq_l1')).alias('egr')
+    ((pl.col('ceq') - pl.col('ceq_l1')) / pl.col('ceq_l1').replace(0, None)).alias('egr')
 ])
+
 # cashdebt
 data_rawa = data_rawa.with_columns([
     ((pl.col('ib') + pl.col('dp')) / 
-     ((pl.col('lt') + pl.col('lt_l1')) / 2)).alias('cashdebt')
+     ((pl.col('lt') + pl.col('lt_l1')) / 2).replace(0, None)).alias('cashdebt')
 ])
+
 # rd
 data_rawa = data_rawa.with_columns([
-    (pl.col('xrd') / pl.col('at_l1')).alias('xrd/at_l1')
+    (pl.col('xrd') / pl.col('at_l1').replace(0, None)).alias('xrd/at_l1')
 ])
 data_rawa = data_rawa.with_columns([
     pl.col('xrd/at_l1').shift(1).over('permno').alias('xrd/at_l1_l1')
 ])
 data_rawa = data_rawa.with_columns([
     pl.when(
-        (((pl.col('xrd') / pl.col('at')) - pl.col('xrd/at_l1_l1')) / 
-         pl.col('xrd/at_l1_l1')) > 0.05
+        (((pl.col('xrd') / pl.col('at').replace(0, None)) - pl.col('xrd/at_l1_l1')) / 
+         pl.col('xrd/at_l1_l1').replace(0, None)) > 0.05
     )
       .then(1)
       .otherwise(0)
@@ -605,12 +607,12 @@ data_rawa = data_rawa.with_columns([
 
 # roa
 data_rawa = data_rawa.with_columns([
-    (pl.col('ib') / pl.col('at_l1')).alias('roa')
+    (pl.col('ib') / pl.col('at_l1').replace(0, None)).alias('roa')
 ])
 
 # roe
 data_rawa = data_rawa.with_columns([
-    (pl.col('ib') / pl.col('ceq_l1')).alias('roe')
+    (pl.col('ib') / pl.col('ceq_l1').replace(0, None)).alias('roe')
 ])
 
 # dy
@@ -621,19 +623,22 @@ data_rawa = data_rawa.with_columns([
 # roic
 data_rawa = data_rawa.with_columns([
     ((pl.col('ebit') - pl.col('nopi')) /
-     (pl.col('ceq') + pl.col('lt') - pl.col('che'))).alias('roic')
+     (pl.col('ceq') + pl.col('lt') - pl.col('che')).replace(0, None)
+    ).alias('roic')
 ])
 
 # chinv
 data_rawa = data_rawa.with_columns([
     ((pl.col('invt') - pl.col('invt_l1')) /
-     ((pl.col('at') + pl.col('at_l2')) / 2)).alias('chinv')
+     ((pl.col('at') + pl.col('at_l2')) / 2).replace(0, None)
+    ).alias('chinv')
 ])
 
 # pchsale_pchinvt
 data_rawa = data_rawa.with_columns([
-    (((pl.col('sale') - pl.col('sale_l1')) / pl.col('sale_l1')) -
-     ((pl.col('invt') - pl.col('invt_l1')) / pl.col('invt_l1'))).alias('pchsale_pchinvt')
+    (((pl.col('sale') - pl.col('sale_l1')) / pl.col('sale_l1').replace(0, None)) -
+     ((pl.col('invt') - pl.col('invt_l1')) / pl.col('invt_l1').replace(0, None))
+    ).alias('pchsale_pchinvt')
 ])
 
 # pchsale_pchrect
@@ -642,8 +647,9 @@ data_rawa = data_rawa.with_columns([
 ])
 
 data_rawa = data_rawa.with_columns([
-    (((pl.col('sale') - pl.col('sale_l1')) / pl.col('sale_l1')) -
-     ((pl.col('rect') - pl.col('rect_l1')) / pl.col('rect_l1'))).alias('pchsale_pchrect')
+    (((pl.col('sale') - pl.col('sale_l1')) / pl.col('sale_l1').replace(0, None)) -
+     ((pl.col('rect') - pl.col('rect_l1')) / pl.col('rect_l1').replace(0, None))
+    ).alias('pchsale_pchrect')
 ])
 
 # pchgm_pchsale
@@ -653,8 +659,9 @@ data_rawa = data_rawa.with_columns([
 
 data_rawa = data_rawa.with_columns([
     ((((pl.col('sale') - pl.col('cogs')) - (pl.col('sale_l1') - pl.col('cogs_l1'))) /
-      (pl.col('sale_l1') - pl.col('cogs_l1'))) -
-     ((pl.col('sale') - pl.col('sale_l1')) / pl.col('sale'))).alias('pchgm_pchsale')
+      (pl.col('sale_l1') - pl.col('cogs_l1')).replace(0, None)) -
+     ((pl.col('sale') - pl.col('sale_l1')) / pl.col('sale').replace(0, None))
+    ).alias('pchgm_pchsale')
 ])
 
 # pchsale_pchxsga
@@ -663,8 +670,9 @@ data_rawa = data_rawa.with_columns([
 ])
 
 data_rawa = data_rawa.with_columns([
-    (((pl.col('sale') - pl.col('sale_l1')) / pl.col('sale_l1')) -
-     ((pl.col('xsga') - pl.col('xsga_l1')) / pl.col('xsga_l1'))).alias('pchsale_pchxsga')
+    (((pl.col('sale') - pl.col('sale_l1')) / pl.col('sale_l1').replace(0, None)) -
+     ((pl.col('xsga') - pl.col('xsga_l1')) / pl.col('xsga_l1').replace(0, None))
+    ).alias('pchsale_pchxsga')
 ])
 
 # pchdepr
@@ -673,8 +681,10 @@ data_rawa = data_rawa.with_columns([
 ])
 
 data_rawa = data_rawa.with_columns([
-    (((pl.col('dp') / pl.col('ppent')) - (pl.col('dp_l1') / pl.col('ppent_l1'))) /
-     (pl.col('dp_l1') / pl.col('ppent'))).alias('pchdepr')
+    (((pl.col('dp') / pl.col('ppent').replace(0, None)) - 
+      (pl.col('dp_l1') / pl.col('ppent_l1').replace(0, None))) /
+     (pl.col('dp_l1') / pl.col('ppent').replace(0, None)).replace(0, None))
+    .alias('pchdepr')
 ])
 
 # chadv
@@ -692,7 +702,8 @@ data_rawa = data_rawa.with_columns([
 ])
 
 data_rawa = data_rawa.with_columns([
-    ((pl.col('capx') - pl.col('capx_l1')) / pl.col('capx_l1')).alias('pchcapx')
+    ((pl.col('capx') - pl.col('capx_l1')) / pl.col('capx_l1').replace(0, None))
+    .alias('pchcapx')
 ])
 
 # grcapx
@@ -701,7 +712,8 @@ data_rawa = data_rawa.with_columns([
 ])
 
 data_rawa = data_rawa.with_columns([
-    ((pl.col('capx') - pl.col('capx_l2')) / pl.col('capx_l2')).alias('grcapx')
+    ((pl.col('capx') - pl.col('capx_l2')) / pl.col('capx_l2').replace(0, None))
+    .alias('grcapx')
 ])
 
 # grGW
@@ -710,7 +722,8 @@ data_rawa = data_rawa.with_columns([
 ])
 
 data_rawa = data_rawa.with_columns([
-    ((pl.col('gdwl') - pl.col('gdwl_l1')) / pl.col('gdwl')).alias('grGW')
+    ((pl.col('gdwl') - pl.col('gdwl_l1')) / pl.col('gdwl').replace(0, None))
+    .alias('grGW')
 ])
 
 data_rawa = data_rawa.with_columns([
@@ -724,63 +737,66 @@ data_rawa = data_rawa.with_columns([
 
 # currat
 data_rawa = data_rawa.with_columns([
-    (pl.col('act') / pl.col('lct')).alias('currat')
+    (pl.col('act') / pl.col('lct').replace(0, None)).alias('currat')
 ])
 
 # pchcurrat
 data_rawa = data_rawa.with_columns([
-    (((pl.col('act') / pl.col('lct')) - (pl.col('act_l1') / pl.col('lct_l1'))) /
-     (pl.col('act_l1') / pl.col('lct_l1'))).alias('pchcurrat')
+    (((pl.col('act') / pl.col('lct').replace(0, None)) -
+      (pl.col('act_l1') / pl.col('lct_l1').replace(0, None))) /
+     (pl.col('act_l1') / pl.col('lct_l1').replace(0, None)).replace(0, None))
+    .alias('pchcurrat')
 ])
 
 # quick
 data_rawa = data_rawa.with_columns([
-    ((pl.col('act') - pl.col('invt')) / pl.col('lct')).alias('quick')
+    ((pl.col('act') - pl.col('invt')) / pl.col('lct').replace(0, None)).alias('quick')
 ])
 
 # pchquick
 data_rawa = data_rawa.with_columns([
-    ((((pl.col('act') - pl.col('invt')) / pl.col('lct')) -
-      ((pl.col('act_l1') - pl.col('invt_l1')) / pl.col('lct_l1'))) /
-     ((pl.col('act_l1') - pl.col('invt_l1')) / pl.col('lct_l1'))).alias('pchquick')
+    ((((pl.col('act') - pl.col('invt')) / pl.col('lct').replace(0, None)) -
+      ((pl.col('act_l1') - pl.col('invt_l1')) / pl.col('lct_l1').replace(0, None))) /
+     ((pl.col('act_l1') - pl.col('invt_l1')) / pl.col('lct_l1').replace(0, None)).replace(0, None))
+    .alias('pchquick')
 ])
 
 # salecash
 data_rawa = data_rawa.with_columns([
-    (pl.col('sale') / pl.col('che')).alias('salecash')
+    (pl.col('sale') / pl.col('che').replace(0, None)).alias('salecash')
 ])
 
 # salerec
 data_rawa = data_rawa.with_columns([
-    (pl.col('sale') / pl.col('rect')).alias('salerec')
+    (pl.col('sale') / pl.col('rect').replace(0, None)).alias('salerec')
 ])
 
 # saleinv
 data_rawa = data_rawa.with_columns([
-    (pl.col('sale') / pl.col('invt')).alias('saleinv')
+    (pl.col('sale') / pl.col('invt').replace(0, None)).alias('saleinv')
 ])
 
 # pchsaleinv
 data_rawa = data_rawa.with_columns([
-    (((pl.col('sale') / pl.col('invt')) - (pl.col('sale_l1') / pl.col('invt_l1'))) /
-     (pl.col('sale_l1') / pl.col('invt_l1'))).alias('pchsaleinv')
+    (((pl.col('sale') / pl.col('invt').replace(0, None)) - (pl.col('sale_l1') / pl.col('invt_l1').replace(0, None))) /
+     (pl.col('sale_l1') / pl.col('invt_l1').replace(0, None)).replace(0, None)).alias('pchsaleinv')
 ])
 
 # realestate
 data_rawa = data_rawa.with_columns([
-    ((pl.col('fatb') + pl.col('fatl')) / pl.col('ppegt')).alias('realestate')
+    ((pl.col('fatb') + pl.col('fatl')) / pl.col('ppegt').replace(0, None)).alias('realestate')
 ])
 
 data_rawa = data_rawa.with_columns([
     pl.when(pl.col('ppegt').is_null())
-      .then((pl.col('fatb') + pl.col('fatl')) / pl.col('ppent'))
+      .then((pl.col('fatb') + pl.col('fatl')) / pl.col('ppent').replace(0, None))
       .otherwise(pl.col('realestate'))
       .alias('realestate')
 ])
 
 # obklg
 data_rawa = data_rawa.with_columns([
-    (pl.col('ob') / ((pl.col('at') + pl.col('at_l1')) / 2)).alias('obklg')
+    (pl.col('ob') / ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None)).alias('obklg')
 ])
 
 # chobklg
@@ -790,7 +806,7 @@ data_rawa = data_rawa.with_columns([
 
 data_rawa = data_rawa.with_columns([
     ((pl.col('ob') - pl.col('ob_l1')) /
-     ((pl.col('at') + pl.col('at_l1')) / 2)).alias('chobklg')
+     ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None)).alias('chobklg')
 ])
 
 # grltnoa
@@ -812,12 +828,13 @@ data_rawa = data_rawa.with_columns([
       (pl.col('rect') - pl.col('rect_l1') + pl.col('invt') - pl.col('invt_l1') +
        pl.col('aco') - pl.col('aco_l1') -
        (pl.col('ap') - pl.col('ap_l1') + pl.col('lco') - pl.col('lco_l1')) - pl.col('dp'))) /
-     ((pl.col('at') + pl.col('at_l1')) / 2)).alias('grltnoa')
+     ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None))
+     .alias('grltnoa')
 ])
 
 # conv
 data_rawa = data_rawa.with_columns([
-    (pl.col('dc') / pl.col('dltt')).alias('conv')
+    (pl.col('dc') / pl.col('dltt').replace(0, None)).alias('conv')
 ])
 
 # convind
@@ -838,7 +855,8 @@ data_rawa = data_rawa.with_columns([
 
 data_rawa = data_rawa.with_columns([
     ((pl.col('dr') - pl.col('dr_l1')) /
-     ((pl.col('at') + pl.col('at_l1')) / 2)).alias('chdrc')
+     ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None))
+    .alias('chdrc')
 ])
 
 # rdbias
@@ -847,25 +865,28 @@ data_rawa = data_rawa.with_columns([
 ])
 
 data_rawa = data_rawa.with_columns([
-    ((pl.col('xrd') / pl.col('xrd_l1')) - 1 - 
-     (pl.col('ib') / pl.col('ceq_l1'))).alias('rdbias')
+    ((pl.col('xrd') / pl.col('xrd_l1').replace(0, None)) - 1 - 
+     (pl.col('ib') / pl.col('ceq_l1').replace(0, None)))
+    .alias('rdbias')
 ])
 
 # operprof
 data_rawa = data_rawa.with_columns([
     ((pl.col('revt') - pl.col('cogs') - pl.col('xsga0') - pl.col('xint0')) /
-     pl.col('ceq_l1')).alias('operprof')
+     pl.col('ceq_l1').replace(0, None))
+    .alias('operprof')
 ])
 
 # cfroa
 data_rawa = data_rawa.with_columns([
-    (pl.col('oancf') / ((pl.col('at') + pl.col('at_l1')) / 2)).alias('cfroa')
+    (pl.col('oancf') / ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None))
+    .alias('cfroa')
 ])
 
 data_rawa = data_rawa.with_columns([
     pl.when(pl.col('oancf').is_null())
       .then(
-        (pl.col('ib') + pl.col('dp')) / ((pl.col('at') + pl.col('at_l1')) / 2)
+        (pl.col('ib') + pl.col('dp')) / ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None)
       )
       .otherwise(pl.col('cfroa'))
       .alias('cfroa')
@@ -873,17 +894,20 @@ data_rawa = data_rawa.with_columns([
 
 # xrdint
 data_rawa = data_rawa.with_columns([
-    (pl.col('xrd') / ((pl.col('at') + pl.col('at_l1')) / 2)).alias('xrdint')
+    (pl.col('xrd') / ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None))
+    .alias('xrdint')
 ])
 
 # capxint
 data_rawa = data_rawa.with_columns([
-    (pl.col('capx') / ((pl.col('at') + pl.col('at_l1')) / 2)).alias('capxint')
+    (pl.col('capx') / ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None))
+    .alias('capxint')
 ])
 
 # xadint
 data_rawa = data_rawa.with_columns([
-    (pl.col('xad') / ((pl.col('at') + pl.col('at_l1')) / 2)).alias('xadint')
+    (pl.col('xad') / ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None))
+    .alias('xadint')
 ])
 
 # chpm
@@ -892,8 +916,8 @@ data_rawa = data_rawa.with_columns([
 ])
 
 data_rawa = data_rawa.with_columns([
-    ((pl.col('ib') / pl.col('sale')) - 
-     (pl.col('ib_l1') / pl.col('sale_l1'))).alias('chpm')
+    ((pl.col('ib') / pl.col('sale').replace(0, None)) - 
+     (pl.col('ib_l1') / pl.col('sale_l1').replace(0, None))).alias('chpm')
 ])
 
 # ala
@@ -910,7 +934,8 @@ data_rawa = data_rawa.with_columns([
 # alm
 data_rawa = data_rawa.with_columns([
     (pl.col('ala') /
-     (pl.col('at') + pl.col('prcc_f') * pl.col('csho') - pl.col('ceq'))).alias('alm')
+     (pl.col('at') + pl.col('prcc_f') * pl.col('csho') - pl.col('ceq')).replace(0, None))
+    .alias('alm')
 ])
 
 # hire
@@ -919,7 +944,7 @@ data_rawa = data_rawa.with_columns([
 ])
 
 data_rawa = data_rawa.with_columns([
-    ((pl.col('emp') - pl.col('emp_l1')) / pl.col('emp_l1')).alias('hire')
+    ((pl.col('emp') - pl.col('emp_l1')) / pl.col('emp_l1').replace(0, None)).alias('hire')
 ])
 
 data_rawa = data_rawa.with_columns([
@@ -938,8 +963,9 @@ df_temp = (data_rawa
 data_rawa = data_rawa.join(df_temp, on=['datadate', 'ffi49'], how='left')
 
 data_rawa = data_rawa.with_columns([
-    ((pl.col('sale') / pl.col('indsale')) * 
-     (pl.col('sale') / pl.col('indsale'))).alias('herf')
+    ((pl.col('sale') / pl.col('indsale').replace(0, None)) * 
+     (pl.col('sale') / pl.col('indsale').replace(0, None)))
+    .alias('herf')
 ])
 
 df_temp = (data_rawa
@@ -1080,7 +1106,7 @@ data_rawa = data_rawa.with_columns([
 
 # secured
 data_rawa = data_rawa.with_columns([
-    (pl.col('dm') / pl.col('dltt')).alias('secured')
+    (pl.col('dm') / pl.col('dltt').replace(0, None)).alias('secured')
 ])
 
 # securedind
@@ -1112,7 +1138,8 @@ data_rawa = data_rawa.with_columns([
 # tang
 data_rawa = data_rawa.with_columns([
     ((pl.col('che') + pl.col('rect') * 0.715 +
-      pl.col('invt') * 0.547 + pl.col('ppent') * 0.535) / pl.col('at')).alias('tang')
+      pl.col('invt') * 0.547 + pl.col('ppent') * 0.535) / pl.col('at').replace(0, None))
+    .alias('tang')
 ])
 
 # tb, Lev and Nissim (2004)
@@ -1132,13 +1159,17 @@ data_rawa = data_rawa.with_columns([
 ])
 
 data_rawa = data_rawa.with_columns([
-    (((pl.col('txfo') + pl.col('txfed')) / pl.col('tr')) / pl.col('ib')).alias('tb_1')
+    (((pl.col('txfo') + pl.col('txfed').replace(0, None)) / 
+      pl.col('tr').replace(0, None)) / 
+      pl.col('ib').replace(0, None))
+    .alias('tb_1')
 ])
 
 data_rawa = data_rawa.with_columns([
     pl.when(pl.col('txfo').is_null() | pl.col('txfed').is_null())
       .then(
-        ((pl.col('txt') - pl.col('txdi')) / pl.col('tr')) / pl.col('ib')
+        ((pl.col('txt') - pl.col('txdi')) / pl.col('tr').replace(0, None)) / 
+        pl.col('ib').replace(0, None)
       )
       .otherwise(pl.col('tb_1'))
       .alias('tb_1')
@@ -1170,35 +1201,7 @@ print("Finish Annual Variables Calculation! \n")
 #######################################################################################################################
 #                                              Compustat Quarterly Raw Info                                           #
 #######################################################################################################################
-comp = conn.raw_sql("""
-                    /*header info*/
-                    select c.gvkey, f.cusip, f.datadate, f.fyearq,  substr(c.sic,1,2) as sic2, c.sic, f.fqtr, f.rdq,
-
-                    /*income statement*/
-                    f.ibq, f.saleq, f.txtq, f.revtq, f.cogsq, f.xsgaq, f.revty, f.cogsy, f.saley,
-
-                    /*balance sheet items*/
-                    f.atq, f.actq, f.cheq, f.lctq, f.dlcq, f.ppentq, f.ppegtq, f.txpq,
-
-                    /*others*/
-                    abs(f.prccq) as prccq, abs(f.prccq)*f.cshoq as mveq_f, f.ceqq, f.seqq, f.pstkq, f.ltq,
-                    f.pstkrq, f.gdwlq, f.intanq, f.mibq, f.oiadpq, f.ivaoq, f.conm,
-                    
-                    /* v3 my formula add*/
-                    f.ajexq, f.cshoq, f.txditcq, f.npq, f.xrdy, f.xrdq, f.dpq, f.xintq, f.invtq, f.scstkcy, f.niq,
-                    f.oancfy, f.dlttq, f.rectq, f.acoq, f.apq, f.lcoq, f.loq, f.aoq
-
-                    from comp.fundq as f
-                    left join comp.company as c
-                    on f.gvkey = c.gvkey
-
-                    /*get consolidated, standardized, industrial format statements*/
-                    where f.indfmt = 'INDL' 
-                    and f.datafmt = 'STD'
-                    and f.popsrc = 'D'
-                    and f.consol = 'C'
-                    and f.datadate >= '01/01/1959'
-                    """)
+comp = pl.read_parquet(INPUT_PATH + 'comp_fundq.parquet')
 
 # rename cusip as cusip_comp
 comp.rename(columns={'cusip': 'cusip_comp'}, inplace=True)
