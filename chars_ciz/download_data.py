@@ -85,34 +85,68 @@ def get_tables_config(start_date='2020-01-01'):
         Dictionary of table configurations with 'output' and 'query' keys
     """
     return {
-        'comp_funda': {
-            'output': os.path.join(OUTPUT_PATH, 'comp_funda.parquet'),
+        # 'comp_funda': {
+        #     'output': os.path.join(OUTPUT_PATH, 'comp_funda.parquet'),
+        #     'query': f"""
+        #         SELECT 
+        #             f.gvkey, f.cusip, f.datadate, f.fyear, c.cik, substr(c.sic,1,2) as sic2, c.sic, c.naics,
+                    
+        #             /* income statement */
+        #             f.sale, f.revt, f.cogs, f.xsga, f.dp, f.xrd, f.xad, f.ib, f.ebitda,
+        #             f.ebit, f.nopi, f.spi, f.pi, f.txp, f.ni, f.txfed, f.txfo, f.txt, f.xint,
+                    
+        #             /* CF statement and others */
+        #             f.capx, f.oancf, f.dvt, f.ob, f.gdwlia, f.gdwlip, f.gwo, f.mib, f.oiadp, f.ivao,
+                    
+        #             /* assets */
+        #             f.rect, f.act, f.che, f.ppegt, f.invt, f.at, f.aco, f.intan, f.ao, f.ppent, f.gdwl, f.fatb, f.fatl,
+                    
+        #             /* liabilities */
+        #             f.lct, f.dlc, f.dltt, f.lt, f.dm, f.dcvt, f.cshrc, 
+        #             f.dcpstk, f.pstk, f.ap, f.lco, f.lo, f.drc, f.drlt, f.txdi,
+                    
+        #             /* equity and other */
+        #             f.ceq, f.scstkc, f.emp, f.csho, f.seq, f.txditc, f.pstkrv, f.pstkl, f.np, f.txdc, f.dpc, f.ajex, f.conm,
+                    
+        #             /* market */
+        #             ABS(f.prcc_f) AS prcc_f
+        #         FROM comp.funda AS f
+        #         LEFT JOIN comp.company AS c 
+        #             ON f.gvkey = c.gvkey
+        #         WHERE f.indfmt = ''INDL'' 
+        #         AND f.datafmt = ''STD''
+        #         AND f.popsrc = ''D''
+        #         AND f.consol = ''C''
+        #         AND f.datadate >= ''{start_date}''
+        #     """
+        # },
+
+        'comp_fundq': {
+            'output': os.path.join(OUTPUT_PATH, 'comp_fundq.parquet'),
             'query': f"""
                 SELECT 
-                    f.gvkey, f.cusip, f.datadate, f.fyear, c.cik, substr(c.sic,1,2) as sic2, c.sic, c.naics,
+                    /*header info*/
+                    c.gvkey, f.cusip, f.datadate, f.fyearq,  substr(c.sic,1,2) as sic2, c.sic, f.fqtr, f.rdq,
+
+                    /*income statement*/
+                    f.ibq, f.saleq, f.txtq, f.revtq, f.cogsq, f.xsgaq, f.revty, f.cogsy, f.saley,
+
+                    /*balance sheet items*/
+                    f.atq, f.actq, f.cheq, f.lctq, f.dlcq, f.ppentq, f.ppegtq, f.txpq,
+
+                    /*others*/
+                    abs(f.prccq) as prccq, abs(f.prccq)*f.cshoq as mveq_f, f.ceqq, f.seqq, f.pstkq, f.ltq,
+                    f.pstkrq, f.gdwlq, f.intanq, f.mibq, f.oiadpq, f.ivaoq, f.conm,
                     
-                    /* income statement */
-                    f.sale, f.revt, f.cogs, f.xsga, f.dp, f.xrd, f.xad, f.ib, f.ebitda,
-                    f.ebit, f.nopi, f.spi, f.pi, f.txp, f.ni, f.txfed, f.txfo, f.txt, f.xint,
-                    
-                    /* CF statement and others */
-                    f.capx, f.oancf, f.dvt, f.ob, f.gdwlia, f.gdwlip, f.gwo, f.mib, f.oiadp, f.ivao,
-                    
-                    /* assets */
-                    f.rect, f.act, f.che, f.ppegt, f.invt, f.at, f.aco, f.intan, f.ao, f.ppent, f.gdwl, f.fatb, f.fatl,
-                    
-                    /* liabilities */
-                    f.lct, f.dlc, f.dltt, f.lt, f.dm, f.dcvt, f.cshrc, 
-                    f.dcpstk, f.pstk, f.ap, f.lco, f.lo, f.drc, f.drlt, f.txdi,
-                    
-                    /* equity and other */
-                    f.ceq, f.scstkc, f.emp, f.csho, f.seq, f.txditc, f.pstkrv, f.pstkl, f.np, f.txdc, f.dpc, f.ajex, f.conm,
-                    
-                    /* market */
-                    ABS(f.prcc_f) AS prcc_f
-                FROM comp.funda AS f
-                LEFT JOIN comp.company AS c 
-                    ON f.gvkey = c.gvkey
+                    /* v3 my formula add*/
+                    f.ajexq, f.cshoq, f.txditcq, f.npq, f.xrdy, f.xrdq, f.dpq, f.xintq, f.invtq, f.scstkcy, f.niq,
+                    f.oancfy, f.dlttq, f.rectq, f.acoq, f.apq, f.lcoq, f.loq, f.aoq
+
+                FROM comp.fundq as f
+                LEFT JOIN comp.company as c
+                ON f.gvkey = c.gvkey
+
+                /*get consolidated, standardized, industrial format statements*/
                 WHERE f.indfmt = ''INDL'' 
                 AND f.datafmt = ''STD''
                 AND f.popsrc = ''D''
@@ -121,31 +155,31 @@ def get_tables_config(start_date='2020-01-01'):
             """
         },
         
-        'crsp_msf': {
-            'output': os.path.join(OUTPUT_PATH, 'crsp_msf.parquet'),
-            'query': f"""
-                SELECT 
-                    mthprc, mthret, mthretx, mthvol,
-                    shrout, mthcumfacpr, mthcumfacshr,
-                    permno, permco, mthcaldt, ticker, cusip, hdrcusip,
-                    issuernm, issuertype, securitytype, securitysubtype, sharetype, usincflg,
-                    primaryexch, conditionaltype, TradingStatusFlg
-                FROM crspq.msf_v2
-                WHERE mthcaldt >= ''{start_date}''
-            """
-        },
+        # 'crsp_msf': {
+        #     'output': os.path.join(OUTPUT_PATH, 'crsp_msf.parquet'),
+        #     'query': f"""
+        #         SELECT 
+        #             mthprc, mthret, mthretx, mthvol,
+        #             shrout, mthcumfacpr, mthcumfacshr,
+        #             permno, permco, mthcaldt, ticker, cusip, hdrcusip,
+        #             issuernm, issuertype, securitytype, securitysubtype, sharetype, usincflg,
+        #             primaryexch, conditionaltype, TradingStatusFlg
+        #         FROM crspq.msf_v2
+        #         WHERE mthcaldt >= ''{start_date}''
+        #     """
+        # },
         
-        'ccm': {
-            'output': os.path.join(OUTPUT_PATH, 'ccm.parquet'),
-            'query': """
-                SELECT 
-                    gvkey, lpermno as permno, linktype, linkprim, 
-                    linkdt, linkenddt
-                FROM crsp.ccmxpf_linktable
-                WHERE substr(linktype,1,1)=''L''
-                AND (linkprim =''C'' or linkprim=''P'')
-            """
-        }
+        # 'ccm': {
+        #     'output': os.path.join(OUTPUT_PATH, 'ccm.parquet'),
+        #     'query': """
+        #         SELECT 
+        #             gvkey, lpermno as permno, linktype, linkprim, 
+        #             linkdt, linkenddt
+        #         FROM crsp.ccmxpf_linktable
+        #         WHERE substr(linktype,1,1)=''L''
+        #         AND (linkprim =''C'' or linkprim=''P'')
+        #     """
+        # }
     }
 
 # ====================================================================================================
