@@ -1204,58 +1204,74 @@ print("Finish Annual Variables Calculation! \n")
 comp = pl.read_parquet(INPUT_PATH + 'comp_fundq.parquet')
 
 # rename cusip as cusip_comp
-comp.rename(columns={'cusip': 'cusip_comp'}, inplace=True)
+comp = comp.rename({'cusip': 'cusip_comp'})
 
 # comp['cusip6'] = comp['cusip'].str.strip().str[0:6]
-comp = comp.dropna(subset=['ibq']).reset_index(drop=True)
+comp = comp.filter(pl.col('ibq').is_not_null())
 
 # sort and clean up
-comp = comp.sort_values(by=['gvkey', 'datadate']
-                        ).drop_duplicates().reset_index(drop=True)
-comp['cshoq'] = np.where(comp['cshoq'] == 0, np.nan, comp['cshoq'])
-comp['ceqq'] = np.where(comp['ceqq'] == 0, np.nan, comp['ceqq'])
-comp['atq'] = np.where(comp['atq'] == 0, np.nan, comp['atq'])
-comp = comp.dropna(subset=['atq']).reset_index(drop=True)
+comp = comp.sort(['gvkey', 'datadate']).unique()
+comp = comp.with_columns([
+    pl.when(pl.col('cshoq') == 0).then(None).otherwise(pl.col('cshoq')).alias('cshoq'),
+    pl.when(pl.col('ceqq') == 0).then(None).otherwise(pl.col('ceqq')).alias('ceqq'),
+    pl.when(pl.col('atq') == 0).then(None).otherwise(pl.col('atq')).alias('atq')
+])
+comp = comp.filter(pl.col('atq').is_not_null())
 
 # convert datadate to date fmt
-comp['datadate'] = pd.to_datetime(comp['datadate'])
+comp = comp.with_columns([
+    pl.col('datadate').cast(pl.Date).alias('datadate')
+])
 
 # merge ccm and comp
 # Lag rule: Following Hou, Xue and Zhang (2015), We use earnings immediately after the announcement day
 # For those data with missing announcement date record, we straightly let the data available after 4 month
-ccm1 = pd.merge(comp, ccm, how='left', on=['gvkey']).reset_index(drop=True)
-ccm1['yearend'] = ccm1['datadate'] + YearEnd(0)
-ccm1['jdate'] = ccm1['datadate'] + MonthEnd(4)  # we change quarterly lag here
+ccm1 = comp.join(ccm, on='gvkey', how='left')
+ccm1 = ccm1.with_columns([
+    pl.col('datadate').dt.offset_by('1y').dt.month_end().alias('yearend'),
+    pl.col('datadate').dt.offset_by('4mo').dt.month_end().alias('jdate')
+])
 
 # deal with ibq to make it as up-to-date as possible
-ccm1['rdq'] = pd.to_datetime(ccm1['rdq']) + MonthEnd(0)
-ccm1['rdq'] = np.where(ccm1['rdq'].isnull(), ccm1['jdate'], ccm1['rdq'])
+ccm1 = ccm1.with_columns([
+    pl.col('rdq').cast(pl.Date).dt.month_end().alias('rdq')
+])
+ccm1 = ccm1.with_columns([
+    pl.when(pl.col('rdq').is_null()).then(pl.col('jdate')).otherwise(pl.col('rdq')).alias('rdq')
+])
 # compare next quarter's announcement date with jdate
-ccm1['rdq_temp'] = ccm1.groupby(['permno'])['rdq'].shift(-1)
-ccm1['rdq_temp'] = np.where(ccm1['rdq_temp'].isnull(
-), ccm1['jdate'], ccm1['rdq_temp'])  # if rdq is NaN, let it be jdate
+ccm1 = ccm1.with_columns([
+    pl.col('rdq').shift(-1).over('permno').alias('rdq_temp')
+])
+ccm1 = ccm1.with_columns([
+    pl.when(pl.col('rdq_temp').is_null()).then(pl.col('jdate')).otherwise(pl.col('rdq_temp')).alias('rdq_temp')
+])
 # compare next quarter's announcement date with jdate
-ccm1['ibq_diff'] = ccm1['jdate'] - ccm1['rdq_temp']
-ccm1['ibq_diff'] = ccm1['ibq_diff'].dt.days
-ccm1['ibq_new'] = ccm1.groupby(
-    ['permno'])['ibq'].shift(-1)  # next quarter's ibq
-ccm1 = ccm1.rename(columns={'ibq': 'ibq_old'})  # original ibq
+ccm1 = ccm1.with_columns([
+    (pl.col('jdate') - pl.col('rdq_temp')).dt.total_days().alias('ibq_diff'),
+    pl.col('ibq').shift(-1).over('permno').alias('ibq_new')
+])
+ccm1 = ccm1.rename({'ibq': 'ibq_old'})  # original ibq
 '''
 if the announcement date is same or in front of jdate, we can use the up-to-date ibq.
 otherwise, we consider the up-to-date ibq is not available and still use the lag-4-months ibq
 '''
-ccm1['ibq'] = np.where(ccm1['ibq_diff'] >= 0, ccm1['ibq_new'], ccm1['ibq_old'])
+ccm1 = ccm1.with_columns([
+    pl.when(pl.col('ibq_diff') >= 0).then(pl.col('ibq_new')).otherwise(pl.col('ibq_old')).alias('ibq')
+])
 # for most recent record we can only use the lag-4-months ibq
-ccm1['ibq'] = np.where(ccm1['ibq'].isnull(), ccm1['ibq_old'], ccm1['ibq'])
+ccm1 = ccm1.with_columns([
+    pl.when(pl.col('ibq').is_null()).then(pl.col('ibq_old')).otherwise(pl.col('ibq')).alias('ibq')
+])
 
 # set link date bounds
-ccm2 = ccm1[(ccm1['jdate'] >= ccm1['linkdt']) & (
-    ccm1['jdate'] <= ccm1['linkenddt'])].reset_index(drop=True)
+ccm2 = ccm1.filter(
+    (pl.col('jdate') >= pl.col('linkdt')) & (pl.col('jdate') <= pl.col('linkenddt'))
+)
 
 # merge ccm2 and crsp2
 # crsp2['jdate'] = crsp2['monthend']
-data_rawq = pd.merge(crsp2, ccm2, how='inner', on=[
-                     'permno', 'jdate']).reset_index(drop=True)
+data_rawq = crsp2.join(ccm2, on=['permno', 'jdate'], how='inner')
 
 # # filter exchcd & shrcd and at least one year data after the IPO
 # data_rawq = data_rawq[((data_rawq['exchcd'] == 1) | (data_rawq['exchcd'] == 2) | (data_rawq['exchcd'] == 3)) &
@@ -1265,39 +1281,59 @@ data_rawq = pd.merge(crsp2, ccm2, how='inner', on=[
 '''
 Note: me is CRSP market equity, mveq_f is Compustat market equity. Please choose the me below.
 '''
-data_rawq['me'] = data_rawq['me'] / 1000  # CRSP ME
+data_rawq = data_rawq.with_columns([
+    (pl.col('me') / 1000).alias('me')  # CRSP ME
+])
 # data_rawq['me'] = data_rawq['mveq_f']  # Compustat ME
 
 # there are some ME equal to zero since this company do not have price or shares data, we drop these observations
-data_rawq['me'] = np.where(data_rawq['me'] == 0, np.nan, data_rawq['me'])
-data_rawq = data_rawq.dropna(subset=['me']).reset_index(drop=True)
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('me') == 0).then(None).otherwise(pl.col('me')).alias('me')
+])
+data_rawq = data_rawq.filter(pl.col('me').is_not_null())
 
 # deal with the duplicates
-data_rawq.loc[data_rawq.groupby(
-    ['datadate', 'permno', 'linkprim'], as_index=False).nth([0]).index, 'temp'] = 1
-data_rawq = data_rawq[data_rawq['temp'].notna()].reset_index(drop=True)
+# Keep first occurrence for each group of ['datadate', 'permno', 'linkprim']
+data_rawq = data_rawq.with_row_index('_temp_idx')
+temp_first = (data_rawq
+    .group_by(['datadate', 'permno', 'linkprim'], maintain_order=True)
+    .agg(pl.col('_temp_idx').first())
+)
+data_rawq = data_rawq.join(temp_first, on=['datadate', 'permno', 'linkprim', '_temp_idx'], how='semi').drop('_temp_idx')
 
-data_rawq.loc[data_rawq.groupby(
-    ['permno', 'yearend', 'datadate'], as_index=False).nth([-1]).index, 'temp'] = 1
-data_rawq = data_rawq[data_rawq['temp'].notna()].reset_index(drop=True)
+# Keep last occurrence for each group of ['permno', 'yearend', 'datadate']
+data_rawq = data_rawq.with_row_index('_temp_idx')
+temp_last = (data_rawq
+    .group_by(['permno', 'yearend', 'datadate'], maintain_order=True)
+    .agg(pl.col('_temp_idx').last())
+)
+data_rawq = data_rawq.join(temp_last, on=['permno', 'yearend', 'datadate', '_temp_idx'], how='semi').drop('_temp_idx')
 
-data_rawq = data_rawq.sort_values(
-    by=['permno', 'jdate']).reset_index(drop=True)
+data_rawq = data_rawq.sort(['permno', 'jdate'])
 
 # add industry code for quarterly data
-data_rawq = data_rawq.dropna(subset=['sic']).reset_index(
-    drop=True)  # gvkey 039750 does not have sic
-data_rawq['sic'] = data_rawq['sic'].astype(int)
+data_rawq = data_rawq.filter(pl.col('sic').is_not_null())  # gvkey 039750 does not have sic
+data_rawq = data_rawq.with_columns([
+    pl.col('sic').cast(pl.Int32).alias('sic')
+])
+#@todo: rewrite all the ffi functions to pl functions
 data_rawq['ffi49'] = ffi49(data_rawq)
-data_rawq['ffi49'] = data_rawq['ffi49'].fillna(49)
-data_rawq['ffi49'] = data_rawq['ffi49'].astype(int)
+data_rawq = data_rawq.with_columns([
+    pl.col('ffi49').fill_null(49).cast(pl.Int32).alias('ffi49')
+])
 #######################################################################################################################
 #                                                   Quarterly Variables                                               #
 #######################################################################################################################
 # prepare be
-data_rawq['beq'] = np.where(
-    data_rawq['seqq'] > 0, data_rawq['seqq']+data_rawq['txditcq']-data_rawq['pstkq'], np.nan)
-data_rawq['beq'] = np.where(data_rawq['beq'] <= 0, np.nan, data_rawq['beq'])
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('seqq') > 0)
+      .then(pl.col('seqq') + pl.col('txditcq') - pl.col('pstkq'))
+      .otherwise(None)
+      .alias('beq')
+])
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('beq') <= 0).then(None).otherwise(pl.col('beq')).alias('beq')
+])
 
 # dy
 # data_rawq['me_l1'] = data_rawq.groupby(['permno'])['me'].shift(1)
@@ -1307,21 +1343,32 @@ data_rawq['beq'] = np.where(data_rawq['beq'] <= 0, np.nan, data_rawq['beq'])
 # data_rawq['dy'] = ttm12(series='mdivpay', df=data_rawq)/data_rawq['me']
 
 # chtx
-data_rawq['txtq_l4'] = data_rawq.groupby(['permno'])['txtq'].shift(4)
-data_rawq['atq_l4'] = data_rawq.groupby(['permno'])['atq'].shift(4)
-data_rawq['chtx'] = (data_rawq['txtq']-data_rawq['txtq_l4']
-                     )/data_rawq['atq_l4']
+data_rawq = data_rawq.with_columns([
+    pl.col('txtq').shift(4).over('permno').alias('txtq_l4'),
+    pl.col('atq').shift(4).over('permno').alias('atq_l4')
+])
+data_rawq = data_rawq.with_columns([
+    ((pl.col('txtq') - pl.col('txtq_l4')) / pl.col('atq_l4').replace(0, None)).alias('chtx')
+])
 
 # roa
-data_rawq['atq_l1'] = data_rawq.groupby(['permno'])['atq'].shift(1)
-data_rawq['roa'] = data_rawq['ibq']/data_rawq['atq_l1']
+data_rawq = data_rawq.with_columns([
+    pl.col('atq').shift(1).over('permno').alias('atq_l1')
+])
+data_rawq = data_rawq.with_columns([
+    (pl.col('ibq') / pl.col('atq_l1').replace(0, None)).alias('roa')
+])
 
 # cash
-data_rawq['cash'] = data_rawq['cheq']/data_rawq['atq']
+data_rawq = data_rawq.with_columns([
+    (pl.col('cheq') / pl.col('atq').replace(0, None)).alias('cash')
+])
 
 # acc
-data_rawq['actq_l4'] = data_rawq.groupby(['permno'])['actq'].shift(4)
-data_rawq['lctq_l4'] = data_rawq.groupby(['permno'])['lctq'].shift(4)
+data_rawq = data_rawq.with_columns([
+    pl.col('actq').shift(4).over('permno').alias('actq_l4'),
+    pl.col('lctq').shift(4).over('permno').alias('lctq_l4')
+])
 
 # data_rawq['npq_l4'] = data_rawq.groupby(['permno'])['npq'].shift(4)
 # condlist = [data_rawq['npq'].isnull(),
@@ -1333,23 +1380,36 @@ data_rawq['lctq_l4'] = data_rawq.groupby(['permno'])['lctq'].shift(4)
 #                                    (data_rawq['actq_l4']-data_rawq['lctq_l4']+data_rawq['npq_l4']))/(data_rawq['beq']))
 
 #################### Added Sloan(1996) or HXZ and GHZ operating accruals on 2025.02.28 ####################
-data_rawq['cheq_l4'] = data_rawq.groupby(['permno'])['cheq'].shift(4)
-data_rawq['dlcq_l4'] = data_rawq.groupby(['permno'])['dlcq'].shift(4)
-data_rawq['txpq_l4'] = data_rawq.groupby(['permno'])['txpq'].shift(4)
+data_rawq = data_rawq.with_columns([
+    pl.col('cheq').shift(4).over('permno').alias('cheq_l4'),
+    pl.col('dlcq').shift(4).over('permno').alias('dlcq_l4'),
+    pl.col('txpq').shift(4).over('permno').alias('txpq_l4')
+])
 
-data_rawq['acc'] = np.where(data_rawq['oancfy'].isnull(),
-                            ((data_rawq['actq'] - data_rawq['actq_l4']) - (data_rawq['cheq'] - data_rawq['cheq_l4']) -
-                            (data_rawq['lctq'] - data_rawq['lctq_l4']) + (data_rawq['dlcq'] - data_rawq['dlcq_l4']) +
-                            (data_rawq['txpq'] - data_rawq['txpq_l4']).fillna(0) - data_rawq['dpq']) / ((data_rawq['atq'] + data_rawq['atq_l4']) / 2),
-                            (data_rawq['ibq'] - data_rawq['oancfy']) / ((data_rawq['atq'] + data_rawq['atq_l4']) / 2))
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('oancfy').is_null())
+      .then(
+          ((pl.col('actq') - pl.col('actq_l4')) - (pl.col('cheq') - pl.col('cheq_l4')) -
+           (pl.col('lctq') - pl.col('lctq_l4')) + (pl.col('dlcq') - pl.col('dlcq_l4')) +
+           (pl.col('txpq') - pl.col('txpq_l4')).fill_null(0) - pl.col('dpq')) / 
+          ((pl.col('atq') + pl.col('atq_l4')) / 2).replace(0, None)
+      )
+      .otherwise(
+          (pl.col('ibq') - pl.col('oancfy')) / ((pl.col('atq') + pl.col('atq_l4')) / 2).replace(0, None)
+      )
+      .alias('acc')
+])
 
 # absacc
-data_rawq['absacc'] = abs(data_rawq['acc'])
+data_rawq = data_rawq.with_columns([
+    pl.col('acc').abs().alias('absacc')
+])
 
 # bm
 # data_rawq['bm'] = data_rawq['beq']/data_rawq['me']
 
 # cfp
+# @todo: rewrite the ttm functions
 data_rawq['ibq4'] = ttm4('ibq', data_rawq)
 data_rawq['dpq4'] = ttm4('dpq', data_rawq)
 # data_rawq['cfp'] = np.where(data_rawq['dpq'].isnull(),
@@ -1360,42 +1420,69 @@ data_rawq['dpq4'] = ttm4('dpq', data_rawq)
 # data_rawq['ep'] = data_rawq['ibq4']/data_rawq['me']
 
 # agr
-data_rawq['agr'] = (data_rawq['atq']-data_rawq['atq_l4'])/data_rawq['atq_l4']
+data_rawq = data_rawq.with_columns([
+    ((pl.col('atq') - pl.col('atq_l4')) / pl.col('atq_l4').replace(0, None)).alias('agr')
+])
 
 # ni
-data_rawq['cshoq_l4'] = data_rawq.groupby(['permno'])['cshoq'].shift(4)
-data_rawq['ajexq_l4'] = data_rawq.groupby(['permno'])['ajexq'].shift(4)
-data_rawq['ni'] = np.where(data_rawq['cshoq'].isnull(), np.nan,
-                           np.log(data_rawq['cshoq']*data_rawq['ajexq']).replace(-np.inf, 0)-np.log(data_rawq['cshoq_l4']*data_rawq['ajexq_l4']))
+data_rawq = data_rawq.with_columns([
+    pl.col('cshoq').shift(4).over('permno').alias('cshoq_l4'),
+    pl.col('ajexq').shift(4).over('permno').alias('ajexq_l4')
+])
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('cshoq').is_null())
+      .then(None)
+      .otherwise(
+          (pl.col('cshoq') * pl.col('ajexq')).log().fill_null(0) - 
+          (pl.col('cshoq_l4') * pl.col('ajexq_l4')).log()
+      )
+      .alias('ni')
+])
 
 # op
-data_rawq['xintq0'] = np.where(
-    data_rawq['xintq'].isnull(), 0, data_rawq['xintq'])
-data_rawq['xsgaq0'] = np.where(
-    data_rawq['xsgaq'].isnull(), 0, data_rawq['xsgaq'])
-data_rawq['beq_l4'] = data_rawq.groupby(['permno'])['beq'].shift(4)
-
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('xintq').is_null()).then(0).otherwise(pl.col('xintq')).alias('xintq0'),
+    pl.when(pl.col('xsgaq').is_null()).then(0).otherwise(pl.col('xsgaq')).alias('xsgaq0'),
+    pl.col('beq').shift(4).over('permno').alias('beq_l4')
+])
+# @todo: rewrite the ttm functions
 data_rawq['op'] = (ttm4('revtq', data_rawq)-ttm4('cogsq', data_rawq) -
                    ttm4('xsgaq0', data_rawq)-ttm4('xintq0', data_rawq))/data_rawq['beq_l4']
 
 # chcsho
-data_rawq['chcsho'] = (data_rawq['cshoq']/data_rawq['cshoq_l4'])-1
+data_rawq = data_rawq.with_columns([
+    ((pl.col('cshoq') / pl.col('cshoq_l4').replace(0, None)) - 1).alias('chcsho')
+])
 
 # cashdebt
-data_rawq['ltq_l4'] = data_rawq.groupby(['permno'])['ltq'].shift(4)
-data_rawq['cashdebt'] = (ttm4('ibq', data_rawq) + ttm4('dpq',
-                         data_rawq))/((data_rawq['ltq']+data_rawq['ltq_l4'])/2)
+# @todo: rewrite the ttm functions
+data_rawq = data_rawq.with_columns([
+    pl.col('ltq').shift(4).over('permno').alias('ltq_l4')
+])
+data_rawq['cashdebt'] = (ttm4('ibq', data_rawq) + ttm4('dpq', data_rawq)) / ((data_rawq['ltq'] + data_rawq['ltq_l4']) / 2).replace(0, None)
 
 # rd
+# @todo: rewrite the ttm functions
 data_rawq['xrdq4'] = ttm4('xrdq', data_rawq)
-data_rawq['xrdq4'] = np.where(
-    data_rawq['xrdq4'].isnull(), data_rawq['xrdy'], data_rawq['xrdq4'])
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('xrdq4').is_null()).then(pl.col('xrdy')).otherwise(pl.col('xrdq4')).alias('xrdq4')
+])
 
-data_rawq['xrdq4/atq_l4'] = data_rawq['xrdq4']/data_rawq['atq_l4']
-data_rawq['xrdq4/atq_l4_l4'] = data_rawq.groupby(
-    ['permno'])['xrdq4/atq_l4'].shift(4)
-data_rawq['rd'] = np.where(((data_rawq['xrdq4']/data_rawq['atq']) -
-                           data_rawq['xrdq4/atq_l4_l4'])/data_rawq['xrdq4/atq_l4_l4'] > 0.05, 1, 0)
+data_rawq = data_rawq.with_columns([
+    (pl.col('xrdq4') / pl.col('atq_l4').replace(0, None)).alias('xrdq4/atq_l4')
+])
+data_rawq = data_rawq.with_columns([
+    pl.col('xrdq4/atq_l4').shift(4).over('permno').alias('xrdq4/atq_l4_l4')
+])
+data_rawq = data_rawq.with_columns([
+    pl.when(
+        ((pl.col('xrdq4') / pl.col('atq').replace(0, None)) - pl.col('xrdq4/atq_l4_l4')) / 
+        pl.col('xrdq4/atq_l4_l4').replace(0, None) > 0.05
+    )
+    .then(1)
+    .otherwise(0)
+    .alias('rd')
+])
 
 #################### Follow Hafzalla, Lundholm, and Van Winkle (2011) and GHZ on 2025.02.28 ####################
 
@@ -1407,24 +1494,33 @@ data_rawq['rd'] = np.where(((data_rawq['xrdq4']/data_rawq['atq']) -
 #                               default=((data_rawq['actq']-data_rawq['lctq']+data_rawq['npq'])-(data_rawq['actq_l4']-data_rawq['lctq_l4']+data_rawq['npq_l4']))/
 #                                       abs(ttm4('ibq', data_rawq)))
 
-condlist = [data_rawq['ibq'] == 0,
-            data_rawq['oancfy'].isnull(),
-            data_rawq['oancfy'].isnull() & data_rawq['ibq'] == 0]
-choicelist = [(data_rawq['ibq'] - data_rawq['oancfy']) / 0.01,
-              ((data_rawq['actq'] - data_rawq['actq_l4']) - (data_rawq['cheq'] - data_rawq['cheq_l4']) -
-               (data_rawq['lctq'] - data_rawq['lctq_l4']) + (data_rawq['dlcq'] - data_rawq['dlcq_l4']) +
-               (data_rawq['txpq'] - data_rawq['txpq_l4']).fillna(0) - data_rawq['dpq']) / data_rawq['ibq'].abs(),
-              ((data_rawq['actq'] - data_rawq['actq_l4']) - (data_rawq['cheq'] - data_rawq['cheq_l4']) -
-               (data_rawq['lctq'] - data_rawq['lctq_l4']) + (data_rawq['dlcq'] - data_rawq['dlcq_l4']) +
-               (data_rawq['txpq'] - data_rawq['txpq_l4']).fillna(0) - data_rawq['dpq']) / 0.01]
-data_rawq['pctacc'] = np.select(condlist, choicelist,
-                                default=(data_rawq['ibq'] - data_rawq['oancfy']) / data_rawq['ibq'].abs())
+# pctacc - using nested when/then/otherwise to replicate np.select behavior
+data_rawq = data_rawq.with_columns([
+    pl.when((pl.col('oancfy').is_null()) & (pl.col('ibq') == 0))
+      .then(
+          ((pl.col('actq') - pl.col('actq_l4')) - (pl.col('cheq') - pl.col('cheq_l4')) -
+           (pl.col('lctq') - pl.col('lctq_l4')) + (pl.col('dlcq') - pl.col('dlcq_l4')) +
+           (pl.col('txpq') - pl.col('txpq_l4')).fill_null(0) - pl.col('dpq')) / 0.01
+      )
+      .when(pl.col('oancfy').is_null())
+      .then(
+          ((pl.col('actq') - pl.col('actq_l4')) - (pl.col('cheq') - pl.col('cheq_l4')) -
+           (pl.col('lctq') - pl.col('lctq_l4')) + (pl.col('dlcq') - pl.col('dlcq_l4')) +
+           (pl.col('txpq') - pl.col('txpq_l4')).fill_null(0) - pl.col('dpq')) / pl.col('ibq').abs().replace(0, None)
+      )
+      .when(pl.col('ibq') == 0)
+      .then((pl.col('ibq') - pl.col('oancfy')) / 0.01)
+      .otherwise((pl.col('ibq') - pl.col('oancfy')) / pl.col('ibq').abs().replace(0, None))
+      .alias('pctacc')
+])
 
 # gma
+# @todo: rewrite the ttm functions
 data_rawq['revtq4'] = ttm4('revtq', data_rawq)
 data_rawq['cogsq4'] = ttm4('cogsq', data_rawq)
-data_rawq['gma'] = (data_rawq['revtq4']-data_rawq['cogsq4']
-                    )/data_rawq['atq_l4']
+data_rawq = data_rawq.with_columns([
+    ((pl.col('revtq4') - pl.col('cogsq4')) / pl.col('atq_l4').replace(0, None)).alias('gma')
+])
 
 # lev
 # data_rawq['lev'] = data_rawq['ltq']/data_rawq['me']
@@ -1433,101 +1529,156 @@ data_rawq['gma'] = (data_rawq['revtq4']-data_rawq['cogsq4']
 # data_rawq['rdm'] = data_rawq['xrdq4']/data_rawq['me']
 
 # sgr
+# @todo: rewrite the ttm functions
 data_rawq['saleq4'] = ttm4('saleq', data_rawq)
-data_rawq['saleq4'] = np.where(
-    data_rawq['saleq4'].isnull(), data_rawq['saley'], data_rawq['saleq4'])
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('saleq4').is_null()).then(pl.col('saley')).otherwise(pl.col('saleq4')).alias('saleq4')
+])
 
-data_rawq['saleq4_l4'] = data_rawq.groupby(['permno'])['saleq4'].shift(4)
-data_rawq['sgr'] = (data_rawq['saleq4']/data_rawq['saleq4_l4'])-1
+data_rawq = data_rawq.with_columns([
+    pl.col('saleq4').shift(4).over('permno').alias('saleq4_l4')
+])
+data_rawq = data_rawq.with_columns([
+    ((pl.col('saleq4') / pl.col('saleq4_l4').replace(0, None)) - 1).alias('sgr')
+])
 
 # sp
 # data_rawq['sp'] = data_rawq['saleq4']/data_rawq['me']
 
 # invest
-data_rawq['ppentq_l4'] = data_rawq.groupby(['permno'])['ppentq'].shift(4)
-data_rawq['invtq_l4'] = data_rawq.groupby(['permno'])['invtq'].shift(4)
-data_rawq['ppegtq_l4'] = data_rawq.groupby(['permno'])['ppegtq'].shift(4)
+data_rawq = data_rawq.with_columns([
+    pl.col('ppentq').shift(4).over('permno').alias('ppentq_l4'),
+    pl.col('invtq').shift(4).over('permno').alias('invtq_l4'),
+    pl.col('ppegtq').shift(4).over('permno').alias('ppegtq_l4')
+])
 
-data_rawq['invest'] = np.where(data_rawq['ppegtq'].isnull(), ((data_rawq['ppentq']-data_rawq['ppentq_l4']) +
-                                                              (data_rawq['invtq']-data_rawq['invtq_l4']))/data_rawq['atq_l4'],
-                               ((data_rawq['ppegtq']-data_rawq['ppegtq_l4'])+(data_rawq['invtq']-data_rawq['invtq_l4']))/data_rawq['atq_l4'])
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('ppegtq').is_null())
+      .then(
+          ((pl.col('ppentq') - pl.col('ppentq_l4')) + 
+           (pl.col('invtq') - pl.col('invtq_l4'))) / pl.col('atq_l4').replace(0, None)
+      )
+      .otherwise(
+          ((pl.col('ppegtq') - pl.col('ppegtq_l4')) + 
+           (pl.col('invtq') - pl.col('invtq_l4'))) / pl.col('atq_l4').replace(0, None)
+      )
+      .alias('invest')
+])
 
 # rd_sale
-data_rawq['rd_sale'] = data_rawq['xrdq4']/data_rawq['saleq4']
+data_rawq = data_rawq.with_columns([
+    (pl.col('xrdq4') / pl.col('saleq4').replace(0, None)).alias('rd_sale')
+])
 
 # lgr
-data_rawq['lgr'] = (data_rawq['ltq']/data_rawq['ltq_l4'])-1
+data_rawq = data_rawq.with_columns([
+    ((pl.col('ltq') / pl.col('ltq_l4').replace(0, None)) - 1).alias('lgr')
+])
 
 # depr
-data_rawq['depr'] = ttm4('dpq', data_rawq)/data_rawq['ppentq']
+# @todo: rewrite the ttm functions
+data_rawq['depr'] = ttm4('dpq', data_rawq) / data_rawq['ppentq'].replace(0, None)
 
 # egr
-data_rawq['ceqq_l4'] = data_rawq.groupby(['permno'])['ceqq'].shift(4)
-data_rawq['egr'] = (data_rawq['ceqq']-data_rawq['ceqq_l4']) / \
-    data_rawq['ceqq_l4']
+data_rawq = data_rawq.with_columns([
+    pl.col('ceqq').shift(4).over('permno').alias('ceqq_l4')
+])
+data_rawq = data_rawq.with_columns([
+    ((pl.col('ceqq') - pl.col('ceqq_l4')) / pl.col('ceqq_l4').replace(0, None)).alias('egr')
+])
 
 # chpm
-data_rawq['ibq4_l1'] = data_rawq.groupby(['permno'])['ibq4'].shift(1)
-data_rawq['saleq4_l1'] = data_rawq.groupby(['permno'])['saleq4'].shift(1)
+data_rawq = data_rawq.with_columns([
+    pl.col('ibq4').shift(1).over('permno').alias('ibq4_l1'),
+    pl.col('saleq4').shift(1).over('permno').alias('saleq4_l1')
+])
 
-data_rawq['chpm'] = (data_rawq['ibq4']/data_rawq['saleq4']) - \
-    (data_rawq['ibq4_l1']/data_rawq['saleq4_l1'])
+data_rawq = data_rawq.with_columns([
+    ((pl.col('ibq4') / pl.col('saleq4').replace(0, None)) - 
+     (pl.col('ibq4_l1') / pl.col('saleq4_l1').replace(0, None))).alias('chpm')
+])
 
 # chato
-data_rawq['atq_l8'] = data_rawq.groupby(['permno'])['atq'].shift(8)
-data_rawq['chato'] = (data_rawq['saleq4']/((data_rawq['atq']+data_rawq['atq_l4'])/2)) - \
-    (data_rawq['saleq4_l4']/((data_rawq['atq_l4']+data_rawq['atq_l8'])/2))
+data_rawq = data_rawq.with_columns([
+    pl.col('atq').shift(8).over('permno').alias('atq_l8')
+])
+data_rawq = data_rawq.with_columns([
+    ((pl.col('saleq4') / ((pl.col('atq') + pl.col('atq_l4')) / 2).replace(0, None)) - 
+     (pl.col('saleq4_l4') / ((pl.col('atq_l4') + pl.col('atq_l8')) / 2).replace(0, None))).alias('chato')
+])
 
 # chatoia
-df_temp = data_rawq.groupby(['datadate', 'ffi49'], as_index=False)[
-    'chato'].mean()
-df_temp = df_temp.rename(columns={'chato': 'chato_ind'})
-data_rawq = pd.merge(data_rawq, df_temp, how='left', on=[
-                     'datadate', 'ffi49']).reset_index(drop=True)
-data_rawq['chatoia'] = data_rawq['chato'] - data_rawq['chato_ind']
+df_temp = (data_rawq
+    .group_by(['datadate', 'ffi49'])
+    .agg(pl.col('chato').mean().alias('chato_ind'))
+)
+data_rawq = data_rawq.join(df_temp, on=['datadate', 'ffi49'], how='left')
+data_rawq = data_rawq.with_columns([
+    (pl.col('chato') - pl.col('chato_ind')).alias('chatoia')
+])
 
 # noa
-data_rawq['ivaoq'] = np.where(data_rawq['ivaoq'].isnull(), 0, 1)
-data_rawq['dlcq'] = np.where(data_rawq['dlcq'].isnull(), 0, 1)
-data_rawq['dlttq'] = np.where(data_rawq['dlttq'].isnull(), 0, 1)
-data_rawq['mibq'] = np.where(data_rawq['mibq'].isnull(), 0, 1)
-data_rawq['pstkq'] = np.where(data_rawq['pstkq'].isnull(), 0, 1)
-data_rawq['noa'] = (data_rawq['atq']-data_rawq['cheq']-data_rawq['ivaoq']) -\
-    (data_rawq['atq']-data_rawq['dlcq']-data_rawq['dlttq']-data_rawq['mibq'] -
-     data_rawq['pstkq']-data_rawq['ceqq'])/data_rawq['atq_l4']
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('ivaoq').is_null()).then(0).otherwise(1).alias('ivaoq'),
+    pl.when(pl.col('dlcq').is_null()).then(0).otherwise(1).alias('dlcq'),
+    pl.when(pl.col('dlttq').is_null()).then(0).otherwise(1).alias('dlttq'),
+    pl.when(pl.col('mibq').is_null()).then(0).otherwise(1).alias('mibq'),
+    pl.when(pl.col('pstkq').is_null()).then(0).otherwise(1).alias('pstkq')
+])
+data_rawq = data_rawq.with_columns([
+    ((pl.col('atq') - pl.col('cheq') - pl.col('ivaoq')) -
+     (pl.col('atq') - pl.col('dlcq') - pl.col('dlttq') - pl.col('mibq') -
+      pl.col('pstkq') - pl.col('ceqq')) / pl.col('atq_l4').replace(0, None)).alias('noa')
+])
 
 # rna
-data_rawq['noa_l4'] = data_rawq.groupby(['permno'])['noa'].shift(4)
-data_rawq['rna'] = data_rawq['oiadpq']/data_rawq['noa_l4']
+data_rawq = data_rawq.with_columns([
+    pl.col('noa').shift(4).over('permno').alias('noa_l4')
+])
+data_rawq = data_rawq.with_columns([
+    (pl.col('oiadpq') / pl.col('noa_l4').replace(0, None)).alias('rna')
+])
 
 # pm
-data_rawq['pm'] = data_rawq['oiadpq']/data_rawq['saleq']
+data_rawq = data_rawq.with_columns([
+    (pl.col('oiadpq') / pl.col('saleq').replace(0, None)).alias('pm')
+])
 
 # ato
-data_rawq['ato'] = data_rawq['saleq']/data_rawq['noa_l4']
+data_rawq = data_rawq.with_columns([
+    (pl.col('saleq') / pl.col('noa_l4').replace(0, None)).alias('ato')
+])
 
 # roe
-data_rawq['ceqq_l1'] = data_rawq.groupby(['permno'])['ceqq'].shift(1)
-data_rawq['roe'] = data_rawq['ibq']/data_rawq['ceqq_l1']
+data_rawq = data_rawq.with_columns([
+    pl.col('ceqq').shift(1).over('permno').alias('ceqq_l1')
+])
+data_rawq = data_rawq.with_columns([
+    (pl.col('ibq') / pl.col('ceqq_l1').replace(0, None)).alias('roe')
+])
 
 ################################## New Added ##################################
 
 # grltnoa
-data_rawq['rectq_l4'] = data_rawq.groupby(['permno'])['rectq'].shift(4)
-data_rawq['acoq_l4'] = data_rawq.groupby(['permno'])['acoq'].shift(4)
-data_rawq['apq_l4'] = data_rawq.groupby(['permno'])['apq'].shift(4)
-data_rawq['lcoq_l4'] = data_rawq.groupby(['permno'])['lcoq'].shift(4)
-data_rawq['loq_l4'] = data_rawq.groupby(['permno'])['loq'].shift(4)
-data_rawq['invtq_l4'] = data_rawq.groupby(['permno'])['invtq'].shift(4)
-data_rawq['ppentq_l4'] = data_rawq.groupby(['permno'])['ppentq'].shift(4)
-data_rawq['atq_l4'] = data_rawq.groupby(['permno'])['atq'].shift(4)
+data_rawq = data_rawq.with_columns([
+    pl.col('rectq').shift(4).over('permno').alias('rectq_l4'),
+    pl.col('acoq').shift(4).over('permno').alias('acoq_l4'),
+    pl.col('apq').shift(4).over('permno').alias('apq_l4'),
+    pl.col('lcoq').shift(4).over('permno').alias('lcoq_l4'),
+    pl.col('loq').shift(4).over('permno').alias('loq_l4')
+    # Note: invtq_l4, ppentq_l4, atq_l4 already exist from earlier calculations
+])
 
-data_rawq['grltnoa'] = ((data_rawq['rectq']+data_rawq['invtq']+data_rawq['ppentq']+data_rawq['acoq']+data_rawq['intanq'] +
-                         data_rawq['aoq']-data_rawq['apq']-data_rawq['lcoq']-data_rawq['loq']) -
-                        (data_rawq['rectq_l4']+data_rawq['invtq_l4']+data_rawq['ppentq_l4']+data_rawq['acoq_l4']-data_rawq['apq_l4']-data_rawq['lcoq_l4']-data_rawq['loq_l4']) -
-                        (data_rawq['rectq']-data_rawq['rectq_l4']+data_rawq['invtq']-data_rawq['invtq_l4']+data_rawq['acoq'] -
-                         (data_rawq['apq']-data_rawq['apq_l4']+data_rawq['lcoq']-data_rawq['lcoq_l4']) -
-                         ttm4('dpq', data_rawq)))/((data_rawq['atq']+data_rawq['atq_l4'])/2)
+# @todo: rewrite the ttm functions
+data_rawq['grltnoa'] = (
+    (data_rawq['rectq'] + data_rawq['invtq'] + data_rawq['ppentq'] + data_rawq['acoq'] + data_rawq['intanq'] +
+     data_rawq['aoq'] - data_rawq['apq'] - data_rawq['lcoq'] - data_rawq['loq']) -
+    (data_rawq['rectq_l4'] + data_rawq['invtq_l4'] + data_rawq['ppentq_l4'] + data_rawq['acoq_l4'] - 
+     data_rawq['apq_l4'] - data_rawq['lcoq_l4'] - data_rawq['loq_l4']) -
+    (data_rawq['rectq'] - data_rawq['rectq_l4'] + data_rawq['invtq'] - data_rawq['invtq_l4'] + data_rawq['acoq'] -
+     (data_rawq['apq'] - data_rawq['apq_l4'] + data_rawq['lcoq'] - data_rawq['lcoq_l4']) -
+     ttm4('dpq', data_rawq))
+) / ((data_rawq['atq'] + data_rawq['atq_l4']) / 2).replace(0, None)
 
 # scal
 # condlist = [data_rawq['seqq'].isnull(),
@@ -1537,162 +1688,218 @@ data_rawq['grltnoa'] = ((data_rawq['rectq']+data_rawq['invtq']+data_rawq['ppentq
 # data_rawq['scal'] = np.select(condlist, choicelist, default=data_rawq['seqq'])
 
 # ala
-data_rawq['gdwlq'] = np.where(
-    data_rawq['gdwlq'].isnull(), 0, data_rawq['gdwlq'])
-data_rawq['intanq'] = np.where(
-    data_rawq['intanq'].isnull(), 0, data_rawq['intanq'])
-data_rawq['ala'] = data_rawq['cheq'] + 0.75*(data_rawq['actq']-data_rawq['cheq']) +\
-    0.5*(data_rawq['atq']-data_rawq['actq'] -
-         data_rawq['gdwlq']-data_rawq['intanq'])
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('gdwlq').is_null()).then(0).otherwise(pl.col('gdwlq')).alias('gdwlq'),
+    pl.when(pl.col('intanq').is_null()).then(0).otherwise(pl.col('intanq')).alias('intanq')
+])
+data_rawq = data_rawq.with_columns([
+    (pl.col('cheq') + 0.75 * (pl.col('actq') - pl.col('cheq')) +
+     0.5 * (pl.col('atq') - pl.col('actq') - pl.col('gdwlq') - pl.col('intanq'))).alias('ala')
+])
 
 # alm
 # data_rawq['alm'] = data_rawq['ala']/(data_rawq['atq']+data_rawq['me']-data_rawq['ceqq'])
 
 # rsup
-data_rawq['saleq_l4'] = data_rawq.groupby(['permno'])['saleq'].shift(4)
+data_rawq = data_rawq.with_columns([
+    pl.col('saleq').shift(4).over('permno').alias('saleq_l4')
+])
 # data_rawq['rsup'] = (data_rawq['saleq'] - data_rawq['saleq_l4'])/data_rawq['me']
 
 # stdsacc
-data_rawq['actq_l1'] = data_rawq.groupby(['permno'])['actq'].shift(1)
-data_rawq['cheq_l1'] = data_rawq.groupby(['permno'])['cheq'].shift(1)
-data_rawq['lctq_l1'] = data_rawq.groupby(['permno'])['lctq'].shift(1)
-data_rawq['dlcq_l1'] = data_rawq.groupby(['permno'])['dlcq'].shift(1)
+data_rawq = data_rawq.with_columns([
+    pl.col('actq').shift(1).over('permno').alias('actq_l1'),
+    pl.col('cheq').shift(1).over('permno').alias('cheq_l1'),
+    pl.col('lctq').shift(1).over('permno').alias('lctq_l1'),
+    pl.col('dlcq').shift(1).over('permno').alias('dlcq_l1')
+])
 
-data_rawq['sacc'] = ((data_rawq['actq']-data_rawq['actq_l1'] - (data_rawq['cheq']-data_rawq['cheq_l1']))
-                     - ((data_rawq['lctq']-data_rawq['lctq_l1'])-(data_rawq['dlcq']-data_rawq['dlcq_l1'])))/data_rawq['saleq']
-data_rawq['sacc'] = np.where(data_rawq['saleq'] <= 0, ((data_rawq['actq']-data_rawq['actq_l1'] - (data_rawq['cheq']-data_rawq['cheq_l1']))
-                                                       - ((data_rawq['lctq']-data_rawq['lctq_l1'])-(data_rawq['dlcq']-data_rawq['dlcq_l1'])))/0.01, data_rawq['sacc'])
+data_rawq = data_rawq.with_columns([
+    (((pl.col('actq') - pl.col('actq_l1')) - (pl.col('cheq') - pl.col('cheq_l1'))) -
+     ((pl.col('lctq') - pl.col('lctq_l1')) - (pl.col('dlcq') - pl.col('dlcq_l1')))).alias('sacc_temp')
+])
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('saleq') <= 0)
+      .then(pl.col('sacc_temp') / 0.01)
+      .otherwise(pl.col('sacc_temp') / pl.col('saleq').replace(0, None))
+      .alias('sacc')
+]).drop('sacc_temp')
 
 
 def chars_std(start, end, df, chars):
     """
-
+    Calculate rolling standard deviation across multiple lags using polars
+    
     :param start: Order of starting lag
     :param end: Order of ending lag
-    :param df: Dataframe
-    :param chars: lag chars
-    :return: std of factor
+    :param df: Polars DataFrame
+    :param chars: column name for which to calculate std
+    :return: polars Series with std of factor
     """
-    lag = pd.DataFrame()
-    lag_list = []
-    for i in range(start, end):
-        lag['chars_l%s' % i] = df.groupby(['permno'])['%s' % chars].shift(i)
-        lag_list.append('chars_l%s' % i)
-    result = lag[lag_list].std(axis=1)
+    # Create list of lagged columns
+    lag_exprs = [pl.col(chars).shift(i).over('permno').alias(f'chars_l{i}') for i in range(start, end)]
+    
+    # Add all lag columns temporarily
+    df_temp = df.select(lag_exprs)
+    
+    # Calculate std across all lag columns (row-wise)
+    result = df_temp.select(
+        pl.concat_list([f'chars_l{i}' for i in range(start, end)]).list.std().alias('std_result')
+    )['std_result']
+    
     return result
 
 
-data_rawq['stdacc'] = chars_std(0, 16, data_rawq, 'sacc')
+data_rawq = data_rawq.with_columns([
+    pl.Series('stdacc', chars_std(0, 16, data_rawq, 'sacc'))
+])
 
 # roavol
-data_rawq['roavol'] = chars_std(0, 16, data_rawq, 'roa')
+data_rawq = data_rawq.with_columns([
+    pl.Series('roavol', chars_std(0, 16, data_rawq, 'roa'))
+])
 
 # stdcf
-data_rawq['scf'] = (data_rawq['ibq']/data_rawq['saleq']) - data_rawq['sacc']
-data_rawq['scf'] = np.where(
-    data_rawq['saleq'] <= 0, (data_rawq['ibq']/0.01) - data_rawq['sacc'], data_rawq['sacc'])
+data_rawq = data_rawq.with_columns([
+    ((pl.col('ibq') / pl.col('saleq').replace(0, None)) - pl.col('sacc')).alias('scf')
+])
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('saleq') <= 0)
+      .then((pl.col('ibq') / 0.01) - pl.col('sacc'))
+      .otherwise(pl.col('scf'))
+      .alias('scf')
+])
 
-data_rawq['stdcf'] = chars_std(0, 16, data_rawq, 'scf')
+data_rawq = data_rawq.with_columns([
+    pl.Series('stdcf', chars_std(0, 16, data_rawq, 'scf'))
+])
 
 # cinvest
-data_rawq['ppentq_l1'] = data_rawq.groupby(['permno'])['ppentq'].shift(1)
-data_rawq['ppentq_l2'] = data_rawq.groupby(['permno'])['ppentq'].shift(2)
-data_rawq['ppentq_l3'] = data_rawq.groupby(['permno'])['ppentq'].shift(3)
-data_rawq['ppentq_l4'] = data_rawq.groupby(['permno'])['ppentq'].shift(4)
-data_rawq['saleq_l1'] = data_rawq.groupby(['permno'])['saleq'].shift(1)
-data_rawq['saleq_l2'] = data_rawq.groupby(['permno'])['saleq'].shift(2)
-data_rawq['saleq_l3'] = data_rawq.groupby(['permno'])['saleq'].shift(3)
+data_rawq = data_rawq.with_columns([
+    pl.col('ppentq').shift(1).over('permno').alias('ppentq_l1'),
+    pl.col('ppentq').shift(2).over('permno').alias('ppentq_l2'),
+    pl.col('ppentq').shift(3).over('permno').alias('ppentq_l3'),
+    pl.col('ppentq').shift(4).over('permno').alias('ppentq_l4'),
+    pl.col('saleq').shift(1).over('permno').alias('saleq_l1'),
+    pl.col('saleq').shift(2).over('permno').alias('saleq_l2'),
+    pl.col('saleq').shift(3).over('permno').alias('saleq_l3')
+])
 
-data_rawq['c_temp1'] = (data_rawq['ppentq_l1'] -
-                        data_rawq['ppentq_l2']) / data_rawq['saleq_l1']
-data_rawq['c_temp2'] = (data_rawq['ppentq_l2'] -
-                        data_rawq['ppentq_l3']) / data_rawq['saleq_l2']
-data_rawq['c_temp3'] = (data_rawq['ppentq_l3'] -
-                        data_rawq['ppentq_l4']) / data_rawq['saleq_l3']
+# Calculate temp columns for normal case (saleq > 0)
+data_rawq = data_rawq.with_columns([
+    ((pl.col('ppentq_l1') - pl.col('ppentq_l2')) / pl.col('saleq_l1').replace(0, None)).alias('c_temp1'),
+    ((pl.col('ppentq_l2') - pl.col('ppentq_l3')) / pl.col('saleq_l2').replace(0, None)).alias('c_temp2'),
+    ((pl.col('ppentq_l3') - pl.col('ppentq_l4')) / pl.col('saleq_l3').replace(0, None)).alias('c_temp3')
+])
 
-data_rawq['cinvest'] = ((data_rawq['ppentq'] - data_rawq['ppentq_l1']) / data_rawq['saleq'])\
-    - (data_rawq[['c_temp1', 'c_temp2', 'c_temp3']].mean(axis=1))
+# Calculate cinvest for normal case
+data_rawq = data_rawq.with_columns([
+    (((pl.col('ppentq') - pl.col('ppentq_l1')) / pl.col('saleq').replace(0, None)) -
+     pl.concat_list(['c_temp1', 'c_temp2', 'c_temp3']).list.mean()).alias('cinvest')
+])
 
-data_rawq['c_temp1'] = (data_rawq['ppentq_l1'] - data_rawq['ppentq_l2']) / 0.01
-data_rawq['c_temp2'] = (data_rawq['ppentq_l2'] - data_rawq['ppentq_l3']) / 0.01
-data_rawq['c_temp3'] = (data_rawq['ppentq_l3'] - data_rawq['ppentq_l4']) / 0.01
+# Recalculate temp columns for saleq <= 0 case
+data_rawq = data_rawq.with_columns([
+    ((pl.col('ppentq_l1') - pl.col('ppentq_l2')) / 0.01).alias('c_temp1_alt'),
+    ((pl.col('ppentq_l2') - pl.col('ppentq_l3')) / 0.01).alias('c_temp2_alt'),
+    ((pl.col('ppentq_l3') - pl.col('ppentq_l4')) / 0.01).alias('c_temp3_alt')
+])
 
-data_rawq['cinvest'] = np.where(data_rawq['saleq'] <= 0, ((data_rawq['ppentq'] - data_rawq['ppentq_l1']) / 0.01)
-                                - (data_rawq[['c_temp1', 'c_temp2', 'c_temp3']].mean(axis=1)), data_rawq['cinvest'])
+# Update cinvest for saleq <= 0 case
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('saleq') <= 0)
+      .then(
+          ((pl.col('ppentq') - pl.col('ppentq_l1')) / 0.01) -
+          pl.concat_list(['c_temp1_alt', 'c_temp2_alt', 'c_temp3_alt']).list.mean()
+      )
+      .otherwise(pl.col('cinvest'))
+      .alias('cinvest')
+])
 
-data_rawq = data_rawq.drop(['c_temp1', 'c_temp2', 'c_temp3'], axis=1)
+data_rawq = data_rawq.drop(['c_temp1', 'c_temp2', 'c_temp3', 'c_temp1_alt', 'c_temp2_alt', 'c_temp3_alt'])
 
 # nincr
-data_rawq['ibq_l1'] = data_rawq.groupby(['permno'])['ibq'].shift(1)
-data_rawq['ibq_l2'] = data_rawq.groupby(['permno'])['ibq'].shift(2)
-data_rawq['ibq_l3'] = data_rawq.groupby(['permno'])['ibq'].shift(3)
-data_rawq['ibq_l4'] = data_rawq.groupby(['permno'])['ibq'].shift(4)
-data_rawq['ibq_l5'] = data_rawq.groupby(['permno'])['ibq'].shift(5)
-data_rawq['ibq_l6'] = data_rawq.groupby(['permno'])['ibq'].shift(6)
-data_rawq['ibq_l7'] = data_rawq.groupby(['permno'])['ibq'].shift(7)
-data_rawq['ibq_l8'] = data_rawq.groupby(['permno'])['ibq'].shift(8)
+data_rawq = data_rawq.with_columns([
+    pl.col('ibq').shift(1).over('permno').alias('ibq_l1'),
+    pl.col('ibq').shift(2).over('permno').alias('ibq_l2'),
+    pl.col('ibq').shift(3).over('permno').alias('ibq_l3'),
+    pl.col('ibq').shift(4).over('permno').alias('ibq_l4'),
+    pl.col('ibq').shift(5).over('permno').alias('ibq_l5'),
+    pl.col('ibq').shift(6).over('permno').alias('ibq_l6'),
+    pl.col('ibq').shift(7).over('permno').alias('ibq_l7'),
+    pl.col('ibq').shift(8).over('permno').alias('ibq_l8')
+])
 
-data_rawq['nincr_temp1'] = np.where(
-    data_rawq['ibq'] > data_rawq['ibq_l1'], 1, 0)
-data_rawq['nincr_temp2'] = np.where(
-    data_rawq['ibq_l1'] > data_rawq['ibq_l2'], 1, 0)
-data_rawq['nincr_temp3'] = np.where(
-    data_rawq['ibq_l2'] > data_rawq['ibq_l3'], 1, 0)
-data_rawq['nincr_temp4'] = np.where(
-    data_rawq['ibq_l3'] > data_rawq['ibq_l4'], 1, 0)
-data_rawq['nincr_temp5'] = np.where(
-    data_rawq['ibq_l4'] > data_rawq['ibq_l5'], 1, 0)
-data_rawq['nincr_temp6'] = np.where(
-    data_rawq['ibq_l5'] > data_rawq['ibq_l6'], 1, 0)
-data_rawq['nincr_temp7'] = np.where(
-    data_rawq['ibq_l6'] > data_rawq['ibq_l7'], 1, 0)
-data_rawq['nincr_temp8'] = np.where(
-    data_rawq['ibq_l7'] > data_rawq['ibq_l8'], 1, 0)
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('ibq') > pl.col('ibq_l1')).then(1).otherwise(0).alias('nincr_temp1'),
+    pl.when(pl.col('ibq_l1') > pl.col('ibq_l2')).then(1).otherwise(0).alias('nincr_temp2'),
+    pl.when(pl.col('ibq_l2') > pl.col('ibq_l3')).then(1).otherwise(0).alias('nincr_temp3'),
+    pl.when(pl.col('ibq_l3') > pl.col('ibq_l4')).then(1).otherwise(0).alias('nincr_temp4'),
+    pl.when(pl.col('ibq_l4') > pl.col('ibq_l5')).then(1).otherwise(0).alias('nincr_temp5'),
+    pl.when(pl.col('ibq_l5') > pl.col('ibq_l6')).then(1).otherwise(0).alias('nincr_temp6'),
+    pl.when(pl.col('ibq_l6') > pl.col('ibq_l7')).then(1).otherwise(0).alias('nincr_temp7'),
+    pl.when(pl.col('ibq_l7') > pl.col('ibq_l8')).then(1).otherwise(0).alias('nincr_temp8')
+])
 
-data_rawq['nincr'] = (data_rawq['nincr_temp1']
-                      + (data_rawq['nincr_temp1']*data_rawq['nincr_temp2'])
-                      + (data_rawq['nincr_temp1'] *
-                         data_rawq['nincr_temp2']*data_rawq['nincr_temp3'])
-                      + (data_rawq['nincr_temp1']*data_rawq['nincr_temp2']
-                         * data_rawq['nincr_temp3']*data_rawq['nincr_temp4'])
-                      + (data_rawq['nincr_temp1']*data_rawq['nincr_temp2'] *
-                         data_rawq['nincr_temp3']*data_rawq['nincr_temp4']*data_rawq['nincr_temp5'])
-                      + (data_rawq['nincr_temp1']*data_rawq['nincr_temp2']*data_rawq['nincr_temp3']
-                         * data_rawq['nincr_temp4']*data_rawq['nincr_temp5']*data_rawq['nincr_temp6'])
-                      + (data_rawq['nincr_temp1']*data_rawq['nincr_temp2']*data_rawq['nincr_temp3'] *
-                         data_rawq['nincr_temp4']*data_rawq['nincr_temp5']*data_rawq['nincr_temp6']*data_rawq['nincr_temp7'])
-                      + (data_rawq['nincr_temp1']*data_rawq['nincr_temp2']*data_rawq['nincr_temp3']*data_rawq['nincr_temp4']*data_rawq['nincr_temp5']*data_rawq['nincr_temp6']*data_rawq['nincr_temp7']*data_rawq['nincr_temp8']))
+data_rawq = data_rawq.with_columns([
+    (pl.col('nincr_temp1') +
+     (pl.col('nincr_temp1') * pl.col('nincr_temp2')) +
+     (pl.col('nincr_temp1') * pl.col('nincr_temp2') * pl.col('nincr_temp3')) +
+     (pl.col('nincr_temp1') * pl.col('nincr_temp2') * pl.col('nincr_temp3') * pl.col('nincr_temp4')) +
+     (pl.col('nincr_temp1') * pl.col('nincr_temp2') * pl.col('nincr_temp3') * pl.col('nincr_temp4') * pl.col('nincr_temp5')) +
+     (pl.col('nincr_temp1') * pl.col('nincr_temp2') * pl.col('nincr_temp3') * pl.col('nincr_temp4') * pl.col('nincr_temp5') * pl.col('nincr_temp6')) +
+     (pl.col('nincr_temp1') * pl.col('nincr_temp2') * pl.col('nincr_temp3') * pl.col('nincr_temp4') * pl.col('nincr_temp5') * pl.col('nincr_temp6') * pl.col('nincr_temp7')) +
+     (pl.col('nincr_temp1') * pl.col('nincr_temp2') * pl.col('nincr_temp3') * pl.col('nincr_temp4') * pl.col('nincr_temp5') * pl.col('nincr_temp6') * pl.col('nincr_temp7') * pl.col('nincr_temp8'))
+    ).alias('nincr')
+])
 
-data_rawq = data_rawq.drop(['ibq_l1', 'ibq_l2', 'ibq_l3', 'ibq_l4', 'ibq_l5', 'ibq_l6', 'ibq_l7', 'ibq_l8', 'nincr_temp1',
-                            'nincr_temp2', 'nincr_temp3', 'nincr_temp4', 'nincr_temp5', 'nincr_temp6', 'nincr_temp7',
-                            'nincr_temp8'], axis=1)
+data_rawq = data_rawq.drop(['ibq_l1', 'ibq_l2', 'ibq_l3', 'ibq_l4', 'ibq_l5', 'ibq_l6', 'ibq_l7', 'ibq_l8', 
+                            'nincr_temp1', 'nincr_temp2', 'nincr_temp3', 'nincr_temp4', 'nincr_temp5', 'nincr_temp6', 'nincr_temp7', 'nincr_temp8'])
+
 
 # performance score
+# @todo: rewrite the ttm functions
 data_rawq['niq4'] = ttm4(series='niq', df=data_rawq)
-data_rawq['niq4_l4'] = data_rawq.groupby(['permno'])['niq4'].shift(4)
-data_rawq['dlttq_l4'] = data_rawq.groupby(['permno'])['dlttq'].shift(4)
-data_rawq['p_temp1'] = np.where(data_rawq['niq4'] > 0, 1, 0)
-data_rawq['p_temp2'] = np.where(data_rawq['oancfy'] > 0, 1, 0)
-data_rawq['p_temp3'] = np.where(
-    data_rawq['niq4']/data_rawq['atq'] > data_rawq['niq4_l4']/data_rawq['atq_l4'], 1, 0)
-data_rawq['p_temp4'] = np.where(data_rawq['oancfy'] > data_rawq['niq4'], 1, 0)
-data_rawq['p_temp5'] = np.where(
-    data_rawq['dlttq']/data_rawq['atq'] < data_rawq['dlttq_l4']/data_rawq['atq_l4'], 1, 0)
-data_rawq['p_temp6'] = np.where(
-    data_rawq['actq']/data_rawq['lctq'] > data_rawq['actq_l4']/data_rawq['lctq_l4'], 1, 0)
-data_rawq['cogsq4_l4'] = data_rawq.groupby(['permno'])['cogsq4'].shift(4)
-data_rawq['p_temp7'] = np.where((data_rawq['saleq4']-data_rawq['cogsq4']/data_rawq['saleq4']) > (
-    data_rawq['saleq4_l4']-data_rawq['cogsq4_l4']/data_rawq['saleq4_l4']), 1, 0)
-data_rawq['p_temp8'] = np.where(
-    data_rawq['saleq4']/data_rawq['atq'] > data_rawq['saleq4_l4']/data_rawq['atq_l4'], 1, 0)
-data_rawq['p_temp9'] = np.where(data_rawq['scstkcy'] == 0, 1, 0)
+data_rawq = data_rawq.with_columns([
+    pl.col('niq4').shift(4).over('permno').alias('niq4_l4'),
+    pl.col('dlttq').shift(4).over('permno').alias('dlttq_l4'),
+    pl.col('cogsq4').shift(4).over('permno').alias('cogsq4_l4')
+])
 
-data_rawq['pscore'] = data_rawq['p_temp1']+data_rawq['p_temp2']+data_rawq['p_temp3']+data_rawq['p_temp4']\
-    + data_rawq['p_temp5']+data_rawq['p_temp6']+data_rawq['p_temp7']+data_rawq['p_temp8']\
-    + data_rawq['p_temp9']
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('niq4') > 0).then(1).otherwise(0).alias('p_temp1'),
+    pl.when(pl.col('oancfy') > 0).then(1).otherwise(0).alias('p_temp2'),
+    pl.when(
+        (pl.col('niq4') / pl.col('atq').replace(0, None)) > 
+        (pl.col('niq4_l4') / pl.col('atq_l4').replace(0, None))
+    ).then(1).otherwise(0).alias('p_temp3'),
+    pl.when(pl.col('oancfy') > pl.col('niq4')).then(1).otherwise(0).alias('p_temp4'),
+    pl.when(
+        (pl.col('dlttq') / pl.col('atq').replace(0, None)) < 
+        (pl.col('dlttq_l4') / pl.col('atq_l4').replace(0, None))
+    ).then(1).otherwise(0).alias('p_temp5'),
+    pl.when(
+        (pl.col('actq') / pl.col('lctq').replace(0, None)) > 
+        (pl.col('actq_l4') / pl.col('lctq_l4').replace(0, None))
+    ).then(1).otherwise(0).alias('p_temp6'),
+    pl.when(
+        ((pl.col('saleq4') - pl.col('cogsq4')) / pl.col('saleq4').replace(0, None)) > 
+        ((pl.col('saleq4_l4') - pl.col('cogsq4_l4')) / pl.col('saleq4_l4').replace(0, None))
+    ).then(1).otherwise(0).alias('p_temp7'),
+    pl.when(
+        (pl.col('saleq4') / pl.col('atq').replace(0, None)) > 
+        (pl.col('saleq4_l4') / pl.col('atq_l4').replace(0, None))
+    ).then(1).otherwise(0).alias('p_temp8'),
+    pl.when(pl.col('scstkcy') == 0).then(1).otherwise(0).alias('p_temp9')
+])
 
-data_rawq = data_rawq.drop(['p_temp1', 'p_temp2', 'p_temp3', 'p_temp4', 'p_temp5', 'p_temp6', 'p_temp7', 'p_temp8',
-                            'p_temp9'], axis=1)
+data_rawq = data_rawq.with_columns([
+    (pl.col('p_temp1') + pl.col('p_temp2') + pl.col('p_temp3') + pl.col('p_temp4') +
+     pl.col('p_temp5') + pl.col('p_temp6') + pl.col('p_temp7') + pl.col('p_temp8') +
+     pl.col('p_temp9')).alias('pscore')
+])
+
+data_rawq = data_rawq.drop(['p_temp1', 'p_temp2', 'p_temp3', 'p_temp4', 'p_temp5', 'p_temp6', 'p_temp7', 'p_temp8', 'p_temp9'])
 
 ################## Added on 2022.09.06 ##################
 # cashpr
