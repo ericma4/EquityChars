@@ -711,31 +711,73 @@ def ffi12(df):
 
 def ttm4(series, df):
     """
-
-    :param series: variables' name
-    :param df: dataframe
-    :return: ttm4
+    Calculate trailing 4-period sum (TTM4) using Polars.
+    
+    :param series: variables' name (string)
+    :param df: polars dataframe
+    :return: polars series with ttm4 values
     """
-    lag = pd.DataFrame()
-    for i in range(1, 4):
-        lag['%(series)s%(lag)s' % {'series': series, 'lag': i}] = df.groupby('permno')['%s' % series].shift(i)
-    result = df['%s' % series] + lag['%s1' % series] + lag['%s2' % series] + lag['%s3' % series]
+    import polars as pl
+    
+    # Create lag columns using polars
+    df_temp = df.with_columns([
+        pl.col(series).shift(1).over('permno').alias(f'{series}_lag1'),
+        pl.col(series).shift(2).over('permno').alias(f'{series}_lag2'),
+        pl.col(series).shift(3).over('permno').alias(f'{series}_lag3')
+    ])
+    
+    # Sum current period + 3 lagged periods
+    result = (
+        df_temp[series] + 
+        df_temp[f'{series}_lag1'] + 
+        df_temp[f'{series}_lag2'] + 
+        df_temp[f'{series}_lag3']
+    )
+    
     return result
 
 
 def ttm12(series, df):
     """
-
-    :param series: variables' name
-    :param df: dataframe
-    :return: ttm12
+    Calculate trailing 12-period sum (TTM12) using Polars.
+    
+    :param series: variables' name (string)
+    :param df: polars dataframe
+    :return: polars series with ttm12 values
     """
-    lag = pd.DataFrame()
-    for i in range(1, 12):
-        lag['%(series)s%(lag)s' % {'series': series, 'lag': i}] = df.groupby('permno')['%s' % series].shift(i)
-    result = df['%s' % series] + lag['%s1' % series] + lag['%s2' % series] + lag['%s3' % series] + \
-             lag['%s4' % series] + lag['%s5' % series] + lag['%s6' % series] + lag['%s7' % series] + \
-             lag['%s8' % series] + lag['%s9' % series] + lag['%s10' % series] + lag['%s11' % series]
+    import polars as pl
+    
+    # Create lag columns using polars
+    df_temp = df.with_columns([
+        pl.col(series).shift(1).over('permno').alias(f'{series}_lag1'),
+        pl.col(series).shift(2).over('permno').alias(f'{series}_lag2'),
+        pl.col(series).shift(3).over('permno').alias(f'{series}_lag3'),
+        pl.col(series).shift(4).over('permno').alias(f'{series}_lag4'),
+        pl.col(series).shift(5).over('permno').alias(f'{series}_lag5'),
+        pl.col(series).shift(6).over('permno').alias(f'{series}_lag6'),
+        pl.col(series).shift(7).over('permno').alias(f'{series}_lag7'),
+        pl.col(series).shift(8).over('permno').alias(f'{series}_lag8'),
+        pl.col(series).shift(9).over('permno').alias(f'{series}_lag9'),
+        pl.col(series).shift(10).over('permno').alias(f'{series}_lag10'),
+        pl.col(series).shift(11).over('permno').alias(f'{series}_lag11')
+    ])
+    
+    # Sum current period + 11 lagged periods
+    result = (
+        df_temp[series] + 
+        df_temp[f'{series}_lag1'] + 
+        df_temp[f'{series}_lag2'] + 
+        df_temp[f'{series}_lag3'] +
+        df_temp[f'{series}_lag4'] + 
+        df_temp[f'{series}_lag5'] + 
+        df_temp[f'{series}_lag6'] + 
+        df_temp[f'{series}_lag7'] +
+        df_temp[f'{series}_lag8'] + 
+        df_temp[f'{series}_lag9'] + 
+        df_temp[f'{series}_lag10'] + 
+        df_temp[f'{series}_lag11']
+    )
+    
     return result
 
 
