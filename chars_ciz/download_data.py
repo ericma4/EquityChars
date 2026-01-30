@@ -121,39 +121,39 @@ def get_tables_config(start_date='2020-01-01'):
         #     """
         # },
 
-        'comp_fundq': {
-            'output': os.path.join(OUTPUT_PATH, 'comp_fundq.parquet'),
-            'query': f"""
-                SELECT 
-                    /*header info*/
-                    c.gvkey, f.cusip, f.datadate, f.fyearq,  substr(c.sic,1,2) as sic2, c.sic, f.fqtr, f.rdq,
+        # 'comp_fundq': {
+        #     'output': os.path.join(OUTPUT_PATH, 'comp_fundq.parquet'),
+        #     'query': f"""
+        #         SELECT 
+        #             /*header info*/
+        #             c.gvkey, f.cusip, f.datadate, f.fyearq,  substr(c.sic,1,2) as sic2, c.sic, f.fqtr, f.rdq,
 
-                    /*income statement*/
-                    f.ibq, f.saleq, f.txtq, f.revtq, f.cogsq, f.xsgaq, f.revty, f.cogsy, f.saley,
+        #             /*income statement*/
+        #             f.ibq, f.saleq, f.txtq, f.revtq, f.cogsq, f.xsgaq, f.revty, f.cogsy, f.saley,
 
-                    /*balance sheet items*/
-                    f.atq, f.actq, f.cheq, f.lctq, f.dlcq, f.ppentq, f.ppegtq, f.txpq,
+        #             /*balance sheet items*/
+        #             f.atq, f.actq, f.cheq, f.lctq, f.dlcq, f.ppentq, f.ppegtq, f.txpq,
 
-                    /*others*/
-                    abs(f.prccq) as prccq, abs(f.prccq)*f.cshoq as mveq_f, f.ceqq, f.seqq, f.pstkq, f.ltq,
-                    f.pstkrq, f.gdwlq, f.intanq, f.mibq, f.oiadpq, f.ivaoq, f.conm,
+        #             /*others*/
+        #             abs(f.prccq) as prccq, abs(f.prccq)*f.cshoq as mveq_f, f.ceqq, f.seqq, f.pstkq, f.ltq,
+        #             f.pstkrq, f.gdwlq, f.intanq, f.mibq, f.oiadpq, f.ivaoq, f.conm,
                     
-                    /* v3 my formula add*/
-                    f.ajexq, f.cshoq, f.txditcq, f.npq, f.xrdy, f.xrdq, f.dpq, f.xintq, f.invtq, f.scstkcy, f.niq,
-                    f.oancfy, f.dlttq, f.rectq, f.acoq, f.apq, f.lcoq, f.loq, f.aoq
+        #             /* v3 my formula add*/
+        #             f.ajexq, f.cshoq, f.txditcq, f.npq, f.xrdy, f.xrdq, f.dpq, f.xintq, f.invtq, f.scstkcy, f.niq,
+        #             f.oancfy, f.dlttq, f.rectq, f.acoq, f.apq, f.lcoq, f.loq, f.aoq
 
-                FROM comp.fundq as f
-                LEFT JOIN comp.company as c
-                ON f.gvkey = c.gvkey
+        #         FROM comp.fundq as f
+        #         LEFT JOIN comp.company as c
+        #         ON f.gvkey = c.gvkey
 
-                /*get consolidated, standardized, industrial format statements*/
-                WHERE f.indfmt = ''INDL'' 
-                AND f.datafmt = ''STD''
-                AND f.popsrc = ''D''
-                AND f.consol = ''C''
-                AND f.datadate >= ''{start_date}''
-            """
-        },
+        #         /*get consolidated, standardized, industrial format statements*/
+        #         WHERE f.indfmt = ''INDL'' 
+        #         AND f.datafmt = ''STD''
+        #         AND f.popsrc = ''D''
+        #         AND f.consol = ''C''
+        #         AND f.datadate >= ''{start_date}''
+        #     """
+        # },
         
         # 'crsp_msf': {
         #     'output': os.path.join(OUTPUT_PATH, 'crsp_msf.parquet'),
@@ -180,13 +180,27 @@ def get_tables_config(start_date='2020-01-01'):
         #         AND (linkprim =''C'' or linkprim=''P'')
         #     """
         # }
+
+        'crsp_dsf': {
+            'output': os.path.join(OUTPUT_PATH, 'crsp_dsf.parquet'),
+            'query': f"""
+                SELECT 
+                    a.permno, a.dlycaldt, a.dlyret, a.dlyvol, a.dlyprc, a.dlyhigh, a.dlylow, 
+                    a.shrout, a.dlydelflg,
+                    b.rf, b.mktrf, b.smb, b.hml, b.umd, b.rmw, b.cma
+                FROM crsp.dsf_v2 as a
+                LEFT JOIN ff_all.fivefactors_daily as b
+                ON a.dlycaldt = b.date
+                WHERE a.dlycaldt >= ''{start_date}''
+            """
+        }
     }
 
 # ====================================================================================================
 
 
 @measure_time
-def download_all_tables(username, password, start_date='2020-01-01'):
+def download_all_tables(username, password, start_date='2023-01-01'):
     """
     Download all required tables from WRDS in a single session to avoid connection timeouts.
     
