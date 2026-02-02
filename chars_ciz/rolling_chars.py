@@ -6,6 +6,7 @@ Characteristics included:
 - beta: CAPM beta
 - beta_ff5: Fama-French 5-factor market beta
 - baspread: Bid-ask spread
+- ill: Amihud (2002) illiquidity measure
 - maxret: Maximum daily return
 - rvar_capm: CAPM residual variance
 - rvar_ff3: FF3 residual variance
@@ -99,11 +100,18 @@ def group_mapping_dfs(input_list, k):
 def capm_beta(df, min_obs=21):
     """
     CAPM beta = cov(exret, mktrf) / var(mktrf)
+    Also computes variance of residuals from regression with intercept
     """
     return (
         df.group_by(["permno", "group_number"])
         .agg([
             (pl.cov("exret", "mktrf") / pl.var("mktrf")).alias("beta"),
+            # Residual variance from regression with intercept:
+            # residual = (exret - mean(exret)) - beta * (mktrf - mean(mktrf))
+            (
+                (col("exret") - pl.mean("exret")) 
+                - (pl.cov("exret", "mktrf") / pl.var("mktrf")) * (col("mktrf") - pl.mean("mktrf"))
+            ).var().alias("rvar_capm"),
             pl.len().alias("n_obs"),
         ])
         .filter(col("n_obs") >= min_obs)
@@ -111,7 +119,7 @@ def capm_beta(df, min_obs=21):
     )
 
 
-def maxret_char(df, min_obs=21):
+def maxret(df, min_obs=21):
     """
     Maximum daily return over the rolling window
     """
@@ -126,7 +134,7 @@ def maxret_char(df, min_obs=21):
     )
 
 
-def rvar_mean_char(df, min_obs=21):
+def rvar_mean(df, min_obs=21):
     """
     Variance of raw returns (no factor adjustment)
     """
@@ -141,7 +149,7 @@ def rvar_mean_char(df, min_obs=21):
     )
 
 
-def baspread_char(df, min_obs=21):
+def baspread(df, min_obs=21):
     """
     Mean relative bid-ask spread: (askhi - bidlo) / ((askhi + bidlo) / 2)
     """
@@ -156,7 +164,7 @@ def baspread_char(df, min_obs=21):
     )
 
 
-def std_dolvol_char(df, min_obs=21):
+def std_dolvol(df, min_obs=21):
     """
     Standard deviation of log dollar volume: std(log(|vol * prc|))
     """
@@ -171,7 +179,7 @@ def std_dolvol_char(df, min_obs=21):
     )
 
 
-def std_turn_char(df, min_obs=21):
+def std_turn(df, min_obs=21):
     """
     Standard deviation of daily turnover: std(vol / shrout)
     """
@@ -186,7 +194,7 @@ def std_turn_char(df, min_obs=21):
     )
 
 
-def zerotrade_char(df, min_obs=21):
+def zerotrade(df, min_obs=21):
     """
     Zero trading days measure:
     zerotrade = (zero_count + (1/turnover_sum)/11000) * 63 / n_obs
@@ -209,7 +217,23 @@ def zerotrade_char(df, min_obs=21):
     )
 
 
-def beta_ff5_char(df, min_obs=21):
+def ill(df, min_obs=21):
+    """
+    Amihud (2002) illiquidity measure:
+    ill = mean(abs(ret) / (abs(prc) * vol))
+    """
+    return (
+        df.group_by(["permno", "group_number"])
+        .agg([
+            (col("ret").abs() / (col("prc").abs() * col("vol"))).mean().alias("ill"),
+            pl.len().alias("n_obs"),
+        ])
+        .filter(col("n_obs") >= min_obs)
+        .drop("n_obs")
+    )
+
+
+def beta_ff5(df, min_obs=21):
     """
     Fama-French 5-factor market beta using polars_ols
     Returns the coefficient on mktrf from regression:
@@ -240,7 +264,7 @@ def beta_ff5_char(df, min_obs=21):
     return result
 
 
-def rvar_capm_char(df, min_obs=21):
+def rvar_capm(df, min_obs=21):
     """
     CAPM residual variance using polars_ols
     Computes var(residuals) from: exret ~ mktrf
@@ -263,7 +287,7 @@ def rvar_capm_char(df, min_obs=21):
     return result
 
 
-def rvar_ff3_char(df, min_obs=21):
+def rvar_ff3(df, min_obs=21):
     """
     Fama-French 3-factor residual variance using polars_ols
     Computes var(residuals) from: exret ~ mktrf + smb + hml
@@ -310,16 +334,25 @@ def process_map_chunk(base_data, mapping, char_func, min_obs=21):
     return result
 
 
-def compute_single_char(df, aux_maps, char_func, char_name, min_obs=21):
+def compute_single_char(df, aux_maps, char_func, char_names, min_obs=21):
     """
     Compute a single characteristic across all mapping chunks
+    
+    Parameters:
+    -----------
+    char_names : str or list of str
+        Column name(s) to extract from the characteristic function
     """
     results = []
     for mapping in aux_maps:
         chunk_result = process_map_chunk(df, mapping, char_func, min_obs=min_obs)
         results.append(chunk_result)
     
-    combined = pl.concat(results).select(["permno", "aux_date", char_name])
+    # Handle both single column name (str) and multiple column names (list)
+    if isinstance(char_names, str):
+        char_names = [char_names]
+    
+    combined = pl.concat(results).select(["permno", "aux_date"] + char_names)
     return combined
 
 
@@ -403,22 +436,24 @@ def compute_all_rolling_chars(input_path, output_path, n_months=3, min_obs=21):
     print(f"Computing {n_months}-month rolling characteristics (min {min_obs} obs)...", flush=True)
     
     char_configs = [
-        (capm_beta, "beta"),
-        (maxret_char, "maxret"),
-        (rvar_mean_char, "rvar_mean"),
-        (baspread_char, "baspread"),
-        (std_dolvol_char, "std_dolvol"),
-        (std_turn_char, "std_turn"),
-        (zerotrade_char, "zerotrade"),
-        (beta_ff5_char, "beta_ff5"),
-        (rvar_capm_char, "rvar_capm"),
-        (rvar_ff3_char, "rvar_ff3"),
+        (capm_beta, ["beta", "rvar_capm"]),  # Extract both columns from capm_beta
+        (maxret, "maxret"),
+        (rvar_mean, "rvar_mean"),
+        (baspread, "baspread"),
+        (std_dolvol, "std_dolvol"),
+        (std_turn, "std_turn"),
+        (zerotrade, "zerotrade"),
+        (ill, "ill"),
+        (beta_ff5, "beta_ff5"),
+        (rvar_ff3, "rvar_ff3"),
     ]
     
     all_results = None
-    for char_func, char_name in char_configs:
-        print(f"  Computing {char_name}...", flush=True)
-        char_result = compute_single_char(df, aux_maps, char_func, char_name, min_obs).collect()
+    for char_func, char_names in char_configs:
+        # Handle display name for logging
+        display_name = char_names if isinstance(char_names, str) else ", ".join(char_names)
+        print(f"  Computing {display_name}...", flush=True)
+        char_result = compute_single_char(df, aux_maps, char_func, char_names, min_obs).collect()
         
         if all_results is None:
             all_results = char_result
@@ -462,7 +497,7 @@ def compute_all_rolling_chars(input_path, output_path, n_months=3, min_obs=21):
 if __name__ == "__main__":
     # Configuration
     INPUT_PATH = "/Users/eric/Documents/GitHub/EquityChars/data/raw/crsp_dsf.parquet"
-    OUTPUT_PATH = "rolling_chars_polars.parquet"
+    OUTPUT_PATH = "rolling_chars.parquet"
     N_MONTHS = 3
     MIN_OBS = 21
     

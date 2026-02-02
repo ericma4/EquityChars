@@ -168,7 +168,7 @@ def get_tables_config(start_date='2020-01-01'):
         #         WHERE mthcaldt >= ''{start_date}''
         #     """
         # },
-        
+        #@TODO: original accounting and abr does not have consistent filter
         # 'ccm': {
         #     'output': os.path.join(OUTPUT_PATH, 'ccm.parquet'),
         #     'query': """
@@ -181,17 +181,30 @@ def get_tables_config(start_date='2020-01-01'):
         #     """
         # }
 
-        'crsp_dsf': {
-            'output': os.path.join(OUTPUT_PATH, 'crsp_dsf.parquet'),
+        # 'crsp_dsf': {
+        #     'output': os.path.join(OUTPUT_PATH, 'crsp_dsf.parquet'),
+        #     'query': f"""
+        #         SELECT 
+        #             a.permno, a.permco, a.dlycaldt, a.dlyret, a.dlyvol, a.dlyprc, a.dlyhigh, a.dlylow, 
+        #             a.shrout, a.dlydelflg, a.dlycumfacpr, a.dlycumfacshr, 
+        #             a.primaryexch, a.conditionaltype, a.tradingstatusflg,
+        #             a.cusip, a.hdrcusip, a.siccd, 
+        #             b.rf, b.mktrf, b.smb, b.hml, b.umd, b.rmw, b.cma
+        #         FROM crspq.dsf_v2 as a
+        #         LEFT JOIN ff_all.fivefactors_daily as b
+        #         ON a.dlycaldt = b.date
+        #         WHERE a.dlycaldt >= ''{start_date}''
+        #     """
+        # }
+
+        'crsp_ind': {
+            'output': os.path.join(OUTPUT_PATH, 'crsp_ind.parquet'),
             'query': f"""
-                SELECT 
-                    a.permno, a.dlycaldt, a.dlyret, a.dlyvol, a.dlyprc, a.dlyhigh, a.dlylow, 
-                    a.shrout, a.dlydelflg,
-                    b.rf, b.mktrf, b.smb, b.hml, b.umd, b.rmw, b.cma
-                FROM crsp.dsf_v2 as a
-                LEFT JOIN ff_all.fivefactors_daily as b
-                ON a.dlycaldt = b.date
-                WHERE a.dlycaldt >= ''{start_date}''
+                SELECT
+                    dlycaldt, dlyprcret
+                FROM crspq.inddlyseriesdata_ind
+                WHERE indno = 1000502  /*industry code for S&P 500 Composite*/
+                AND dlycaldt >= ''{start_date}''
             """
         }
     }
@@ -343,4 +356,4 @@ if __name__ == "__main__":
     password = input("Enter WRDS password: ")
     
     # Download all tables in one session (recommended to avoid connection timeouts)
-    download_all_tables(username, password, start_date='2020-01-01')
+    download_all_tables(username, password, start_date='2024-01-01')

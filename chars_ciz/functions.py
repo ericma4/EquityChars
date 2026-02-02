@@ -3,6 +3,9 @@ import numpy as np
 from tqdm import tqdm
 import re
 
+INPUT_PATH = "../data/raw/"
+OUTPUT_PATH = "../data/processed/"
+
 def ffi49():
     """
     Returns a Polars expression that classifies SIC codes into 49 Fama-French industries.
