@@ -20,7 +20,7 @@ import polars as pl
 from polars import col
 import polars_ols as pls
 import time
-import os
+from functions import INPUT_PATH, OUTPUT_PATH
 
 # =============================================================================
 # Utility Functions
@@ -496,8 +496,8 @@ def compute_all_rolling_chars(input_path, output_path, n_months=3, min_obs=21):
 
 if __name__ == "__main__":
     # Configuration
-    INPUT_PATH = "/Users/eric/Documents/GitHub/EquityChars/data/raw/crsp_dsf.parquet"
-    OUTPUT_PATH = "rolling_chars.parquet"
+    INPUT_PATH = INPUT_PATH + "crsp_dsf.parquet"
+    OUTPUT_PATH = OUTPUT_PATH + "rolling_chars.parquet"
     N_MONTHS = 3
     MIN_OBS = 21
     
