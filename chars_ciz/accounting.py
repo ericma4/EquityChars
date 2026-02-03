@@ -196,8 +196,21 @@ crsp2 = (crsp1
     .unique()
 )
 
+# Save full CRSP data for later use (momentum + ME-dependent characteristics)
+# This avoids needing to reload CRSP later
+crsp_full = crsp2.clone()
+
+# Create permno-only subset for initial CCM merge
+# Only need permno and monthend (as jdate) for filtering the Compustat sample
+crsp_permno_only = (crsp2
+    .select(['permno', 'monthend'])
+    .rename({'monthend': 'jdate'})
+    .unique()
+)
+
 #######################################################################################################################
 #                                                        CCM Block                                                    #
+
 #######################################################################################################################
 # merge CRSP and Compustat
 # reference: https://wrds-www.wharton.upenn.edu/pages/support/applications/linking-databases/linking-crsp-and-compustat/
@@ -231,32 +244,12 @@ ccm2 = ccm1.filter(
     (pl.col('jdate') <= pl.col('linkenddt'))
 )
 
-# link comp and crsp
-crsp2 = crsp2.rename({'monthend': 'jdate'})
-data_rawa = crsp2.join(ccm2, on=['permno', 'jdate'], how='inner')
+# link comp and crsp (using permno only for initial sample restriction)
+# Full CRSP data (me, ret, etc.) will be merged later for ME-dependent characteristics
+data_rawa = ccm2.join(crsp_permno_only, on=['permno', 'jdate'], how='inner')
 
 # filter exchcd & shrcd and at least more than 1 year data
 # Already filtered earlier in crsp
-
-# process Market Equity
-'''
-Note: me is CRSP market equity, mve_f is Compustat market equity. Please choose the me below.
-'''
-data_rawa = data_rawa.with_columns([
-    (pl.col('me') / 1000).alias('me')  # CRSP ME in millions
-])
-# data_rawa['me'] = data_rawa['mve_f']  # Compustat ME
-
-# there are some ME equal to zero since this company do not have price or shares data, we drop these observations
-data_rawa = (data_rawa
-    .with_columns([
-        pl.when(pl.col('me') == 0)
-          .then(None)
-          .otherwise(pl.col('me'))
-          .alias('me')
-    ])
-    .filter(pl.col('me').is_not_null())
-)
 
 # count single stock years
 data_rawa = data_rawa.with_columns([
@@ -1280,28 +1273,13 @@ ccm2 = ccm1.filter(
     (pl.col('jdate') >= pl.col('linkdt')) & (pl.col('jdate') <= pl.col('linkenddt'))
 )
 
-# merge ccm2 and crsp2
-# crsp2['jdate'] = crsp2['monthend']
-data_rawq = crsp2.join(ccm2, on=['permno', 'jdate'], how='inner')
+# merge ccm2 and crsp (using permno only for initial sample restriction)
+# Full CRSP data (me, ret, etc.) will be merged later for ME-dependent characteristics
+data_rawq = ccm2.join(crsp_permno_only, on=['permno', 'jdate'], how='inner')
 
 # # filter exchcd & shrcd and at least one year data after the IPO
 # data_rawq = data_rawq[((data_rawq['exchcd'] == 1) | (data_rawq['exchcd'] == 2) | (data_rawq['exchcd'] == 3)) &
 #                       ((data_rawq['shrcd'] == 10) | (data_rawq['shrcd'] == 11))].reset_index(drop=True)
-
-# process Market Equity
-'''
-Note: me is CRSP market equity, mveq_f is Compustat market equity. Please choose the me below.
-'''
-data_rawq = data_rawq.with_columns([
-    (pl.col('me') / 1000).alias('me')  # CRSP ME
-])
-# data_rawq['me'] = data_rawq['mveq_f']  # Compustat ME
-
-# there are some ME equal to zero since this company do not have price or shares data, we drop these observations
-data_rawq = data_rawq.with_columns([
-    pl.when(pl.col('me') == 0).then(None).otherwise(pl.col('me')).alias('me')
-])
-data_rawq = data_rawq.filter(pl.col('me').is_not_null())
 
 # deal with the duplicates
 # Keep first occurrence for each group of ['datadate', 'permno', 'linkprim']
@@ -1927,82 +1905,22 @@ print("Finish Quarterly Variables Calculation! \n")
 #######################################################################################################################
 #                                                       Momentum                                                      #
 #######################################################################################################################
-crsp = pl.read_parquet(INPUT_PATH + 'crsp_msf.parquet')
+# Use crsp_full that was prepared at the beginning (no need to reload CRSP)
+crsp_mom = crsp_full.clone()
 
-# equivalent to legacy code exchcd = 1, 2 or 3
-crsp = crsp.filter(
-    (pl.col('primaryexch').is_in(['N', 'A', 'Q'])) &
-    (pl.col('conditionaltype') == 'RW') &
-    (pl.col('tradingstatusflg') == 'A')
-)
-# crsp['exchcd'] = crsp['primaryexch'].map({'N': 1, 'A': 2, 'Q': 3})
-# # equivalent to legacy code shrcd = 10 or 11
-# crsp = crsp.loc[(crsp.sharetype == 'NS') &
-#                 (crsp.securitytype == 'EQTY') &
-#                 (crsp.securitysubtype == 'COM') &
-#                 (crsp.usincflg == 'Y') &
-#                 (crsp.issuertype.isin(['ACOR', 'CORP']))]
-crsp = crsp.drop(['primaryexch', 'conditionaltype', 'tradingstatusflg', 'securitytype', 'securitysubtype',
-                  'sharetype', 'usincflg', 'issuertype'])
+# Rename monthend to jdate for consistency
+crsp_mom = crsp_mom.rename({'monthend': 'jdate'})
 
-crsp = crsp.rename({
-    'mthprc': 'prc',
-    'mthret': 'ret',
-    'mthretx': 'retx',
-    'mthvol': 'vol',
-    'mthcaldt': 'date',
-})
-
-crsp = crsp.filter(
-    pl.col('ret').is_not_null() & 
-    pl.col('retx').is_not_null() & 
-    pl.col('prc').is_not_null()
-)  # 最后comment
-
-# change variable format to int
-crsp = crsp.with_columns([
-    pl.col('permco').cast(pl.Int64),
-    pl.col('permno').cast(pl.Int64)
-])
-
-# Line up date to be end of month
-# set all the date to the standard end date of month
-crsp = crsp.with_columns([
-    pl.col('date').dt.month_end().alias('jdate'),
-    pl.col('ret').fill_null(0),
-    pl.col('retx').fill_null(0),
-    (pl.col('prc').abs() * pl.col('shrout')).alias('me')
-])
-
-
-# Aggregate Market Cap
-'''
-There are cases when the same firm (permco) has two or more securities (permno) at same date.
-For the purpose of ME for the firm, we aggregated all ME for a given permco, date.
-This aggregated ME will be assigned to the permno with the largest ME.
-'''
-# sum of me across different permno belonging to same permco a given date
-crsp_summe = crsp.group_by(['jdate', 'permco']).agg(pl.col('me').sum())
-# largest mktcap within a permco/date
-crsp_maxme = crsp.group_by(['jdate', 'permco']).agg(pl.col('me').max())
-# join by jdate/maxme to find the permno
-crsp1 = crsp.join(crsp_maxme, on=['jdate', 'permco', 'me'], how='inner')
-# drop me column and replace with the sum me
-crsp1 = crsp1.drop('me')
-# join with sum of me to get the correct market cap info
-crsp2 = crsp1.join(crsp_summe, on=['jdate', 'permco'], how='inner')
-# sort by permno and date and also drop duplicates
-crsp2 = crsp2.sort(['permno', 'jdate']).unique()
-
-################## Added on 2025.02.23 ##################
-crsp2 = crsp2.with_columns([
+# Convert ME to millions
+crsp_mom = crsp_mom.with_columns([
     (pl.col('me') / 1000).alias('me')  # CRSP ME in million unit
 ])
 
-crsp_mom = crsp2.clone()
 crsp_mom = crsp_mom.sort(['permno', 'date'])
 
 # No need to add delisting return in the new CIZ CRSP format
+
+
 
 
 def mom(start, end, df):
