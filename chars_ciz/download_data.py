@@ -47,13 +47,12 @@ def gen_wrds_connection_info(user, password):
     )
 
 
-def _execute_download(con, wrds_conninfo, table_name, query, output_file):
+def _execute_download(con, table_name, query, output_file):
     """
     Helper function to execute a single table download.
     
     Args:
-        con: DuckDB connection
-        wrds_conninfo: WRDS connection string
+        con: DuckDB connection (already attached to WRDS)
         table_name: Name of table for logging
         query: SQL query to execute on WRDS
         output_file: Path to save parquet file
@@ -173,6 +172,7 @@ def get_tables_config(start_date='2020-01-01'):
                 WHERE mthcaldt >= ''{start_date}''
             """
         },
+
         # @TODO: original accounting and abr does not have consistent filter
         'ccm': {
             'output': os.path.join(OUTPUT_PATH, 'ccm.parquet'),
@@ -184,7 +184,7 @@ def get_tables_config(start_date='2020-01-01'):
                 WHERE substr(linktype,1,1)=''L''
                 AND (linkprim =''C'' or linkprim=''P'')
             """
-        }
+        },
 
         'crsp_dsf': {
             'output': os.path.join(OUTPUT_PATH, 'crsp_dsf.parquet'),
@@ -200,7 +200,7 @@ def get_tables_config(start_date='2020-01-01'):
                 ON a.dlycaldt = b.date
                 WHERE a.dlycaldt >= ''{start_date}''
             """
-        }
+        },
 
         'crsp_ind': {
             'output': os.path.join(OUTPUT_PATH, 'crsp_ind.parquet'),
@@ -211,7 +211,7 @@ def get_tables_config(start_date='2020-01-01'):
                 WHERE indno = 1000502  /*industry code for S&P 500 Composite*/
                 AND dlycaldt >= ''{start_date}''
             """
-        }
+        },
 
         'ibes': {
             'output': os.path.join(OUTPUT_PATH, 'ibes.parquet'),
@@ -236,7 +236,10 @@ def get_tables_config(start_date='2020-01-01'):
 @measure_time
 def download_all_tables(username, password, start_date='2023-01-01'):
     """
-    Download all required tables from WRDS in a single session to avoid connection timeouts.
+    Download all required tables from WRDS with fresh connection per table to avoid timeouts.
+    
+    Creates a new DuckDB/WRDS connection for each table download to prevent
+    connection timeout issues during long multi-table downloads.
     
     Args:
         username: WRDS username
@@ -249,126 +252,28 @@ def download_all_tables(username, password, start_date='2023-01-01'):
     os.makedirs(OUTPUT_PATH, exist_ok=True)
     
     wrds_conninfo = gen_wrds_connection_info(username, password)
-    con = duckdb.connect(":memory:")
-    con.execute("INSTALL postgres; LOAD postgres;")
-    con.execute(f"ATTACH '{wrds_conninfo}' AS wrds (TYPE postgres, READ_ONLY)")
     
     # Get table configurations
     tables = get_tables_config(start_date)
     
-    # Download all tables in sequence
+    # Download each table with a fresh connection to avoid WRDS timeout
     for table_name, config in tables.items():
-        _execute_download(
-            con=con,
-            wrds_conninfo=wrds_conninfo,
-            table_name=table_name,
-            query=config['query'],
-            output_file=config['output']
-        )
+        # Create fresh connection for each table
+        con = duckdb.connect(":memory:")
+        con.execute("INSTALL postgres; LOAD postgres;")
+        con.execute(f"ATTACH '{wrds_conninfo}' AS wrds (TYPE postgres, READ_ONLY)")
+        
+        try:
+            _execute_download(
+                con=con,
+                table_name=table_name,
+                query=config['query'],
+                output_file=config['output']
+            )
+        finally:
+            con.close()
     
-    con.close()
     print("All tables downloaded successfully!", flush=True)
-
-
-# Individual download functions for flexibility
-def download_comp_funda(username, password, start_date='2020-01-01'):
-    """Download Compustat annual fundamentals (funda) with company info."""
-    os.makedirs(OUTPUT_PATH, exist_ok=True)
-    output_file = os.path.join(OUTPUT_PATH, 'comp_funda.parquet')
-    
-    wrds_conninfo = gen_wrds_connection_info(username, password)
-    con = duckdb.connect(":memory:")
-    con.execute("INSTALL postgres; LOAD postgres;")
-    con.execute(f"ATTACH '{wrds_conninfo}' AS wrds (TYPE postgres, READ_ONLY)")
-    
-    query = f"""
-        SELECT 
-            f.gvkey, f.cusip, f.datadate, f.fyear, c.cik, substr(c.sic,1,2) as sic2, c.sic, c.naics,
-            
-            /* income statement */
-            f.sale, f.revt, f.cogs, f.xsga, f.dp, f.xrd, f.xad, f.ib, f.ebitda,
-            f.ebit, f.nopi, f.spi, f.pi, f.txp, f.ni, f.txfed, f.txfo, f.txt, f.xint,
-            
-            /* CF statement and others */
-            f.capx, f.oancf, f.dvt, f.ob, f.gdwlia, f.gdwlip, f.gwo, f.mib, f.oiadp, f.ivao,
-            
-            /* assets */
-            f.rect, f.act, f.che, f.ppegt, f.invt, f.at, f.aco, f.intan, f.ao, f.ppent, f.gdwl, f.fatb, f.fatl,
-            
-            /* liabilities */
-            f.lct, f.dlc, f.dltt, f.lt, f.dm, f.dcvt, f.cshrc, 
-            f.dcpstk, f.pstk, f.ap, f.lco, f.lo, f.drc, f.drlt, f.txdi,
-            
-            /* equity and other */
-            f.ceq, f.scstkc, f.emp, f.csho, f.seq, f.txditc, f.pstkrv, f.pstkl, f.np, f.txdc, f.dpc, f.ajex, f.conm,
-            
-            /* market */
-            ABS(f.prcc_f) AS prcc_f
-        FROM comp.funda AS f
-        LEFT JOIN comp.company AS c 
-            ON f.gvkey = c.gvkey
-        WHERE f.indfmt = ''INDL'' 
-        AND f.datafmt = ''STD''
-        AND f.popsrc = ''D''
-        AND f.consol = ''C''
-        AND f.datadate >= ''{start_date}''
-    """
-    
-    _execute_download(con, wrds_conninfo, 'comp_funda', query, output_file)
-    con.close()
-    return output_file
-
-
-def download_crsp_msf(username, password, start_date='2020-01-01'):
-    """Download CRSP monthly stock file with security names."""
-    os.makedirs(OUTPUT_PATH, exist_ok=True)
-    output_file = os.path.join(OUTPUT_PATH, 'crsp_msf.parquet')
-    
-    wrds_conninfo = gen_wrds_connection_info(username, password)
-    con = duckdb.connect(":memory:")
-    con.execute("INSTALL postgres; LOAD postgres;")
-    con.execute(f"ATTACH '{wrds_conninfo}' AS wrds (TYPE postgres, READ_ONLY)")
-    
-    query = f"""
-        SELECT 
-            a.prc, a.ret, a.retx, a.shrout, a.vol, a.cfacpr, a.cfacshr, a.date, a.permno, a.permco,
-            b.ticker, b.ncusip, b.shrcd, b.exchcd, b.comnam
-        FROM crsp.msf as a
-        LEFT JOIN crsp.msenames as b
-            ON a.permno=b.permno
-            AND b.namedt<=a.date
-            AND a.date<=b.nameendt
-        WHERE a.date >= ''{start_date}''
-        AND b.exchcd between 1 and 3
-    """
-    
-    _execute_download(con, wrds_conninfo, 'crsp_msf', query, output_file)
-    con.close()
-    return output_file
-
-
-def download_ccm(username, password):
-    """Download CRSP-Compustat Merged (CCM) link table."""
-    os.makedirs(OUTPUT_PATH, exist_ok=True)
-    output_file = os.path.join(OUTPUT_PATH, 'ccm.parquet')
-    
-    wrds_conninfo = gen_wrds_connection_info(username, password)
-    con = duckdb.connect(":memory:")
-    con.execute("INSTALL postgres; LOAD postgres;")
-    con.execute(f"ATTACH '{wrds_conninfo}' AS wrds (TYPE postgres, READ_ONLY)")
-    
-    query = """
-        SELECT 
-            gvkey, lpermno as permno, linktype, linkprim, 
-            linkdt, linkenddt
-        FROM crsp.ccmxpf_linktable
-        WHERE substr(linktype,1,1)=''L''
-        AND (linkprim =''C'' or linkprim=''P'')
-    """
-    
-    _execute_download(con, wrds_conninfo, 'ccm', query, output_file)
-    con.close()
-    return output_file
 
 
 if __name__ == "__main__":
