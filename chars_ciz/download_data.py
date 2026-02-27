@@ -173,8 +173,8 @@ def get_tables_config(start_date='2020-01-01'):
             """
         },
 
-        # @TODO: original accounting and abr does not have consistent filter
-        # 2026-02-10 updates: confirm and use ccmxpf_lnkgist
+        # @TODO(fixed): original accounting and abr does not have consistent filter
+        # 2026-02-10 updates: confirm and use ccmxpf_lnkhist
         'ccm': {
             'output': os.path.join(OUTPUT_PATH, 'ccm.parquet'),
             'query': """

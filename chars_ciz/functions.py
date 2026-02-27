@@ -325,143 +325,287 @@ def ttm12(series, df):
         pl.col(series).shift(11).over('permno')
     )
 
+# @TODO(tranformed): pandas -> polars以下function转换
 
-def fillna_atq(df_q, df_a):
-    # fina columns are na in df_q and exist in df_a
-    df_q_na_list = df_q.columns[df_q.isna().any()].tolist()
-    df_a_columns_list = df_a.columns.values.tolist()
-    list_temp = list(set(df_q_na_list) & set(df_a_columns_list))
-    # remove mom columns, mom chars are same in annual and quarterly
-    na_columns_list = []
-    for i in list_temp:
-        if re.match(r'mom.', i) is None:
-            na_columns_list.append(i)
-    # get annual columns from df_a
-    df_temp = df_a[na_columns_list].copy()
-    df_temp[['permno', 'date']] = df_a[['permno', 'date']].copy()
-    # rename annual columns in the form of 'chars_a'
-    for na_column in na_columns_list:
-        df_temp = df_temp.rename(columns={'%s' % na_column: '%s_a' % na_column})
-    df_temp = df_temp.reset_index(drop=True)
-    # use annual chars to fill quarterly na
-    df_q = pd.merge(df_q, df_temp, how='left', on=['permno', 'date'])
-    for na_column in na_columns_list:
-        df_q['%s' % na_column] = np.where(df_q['%s' % na_column].isnull(), df_q['%s_a' % na_column], df_q['%s' % na_column])
-        df_q = df_q.drop(['%s_a' % na_column], axis=1)
+def fillna_atq(df_q: pl.DataFrame, df_a: pl.DataFrame) -> pl.DataFrame:
+    """
+    Use annual chars to fill null values in quarterly chars.
+    Skips columns matching 'mom*' pattern.
+    """
+    # find columns that are null in df_q AND exist in df_a
+    q_null_cols = [c for c in df_q.columns if df_q[c].is_null().any()]
+    a_cols = df_a.columns
+    candidates = list(set(q_null_cols) & set(a_cols))
+
+    # exclude mom* columns
+    na_columns_list = [c for c in candidates if not re.match(r'mom.', c)]
+
+    if not na_columns_list:
+        return df_q
+
+    # extract annual cols + keys, rename to '*_a'
+    df_temp = (
+        df_a.select(['permno', 'date'] + na_columns_list)
+        .rename({c: f'{c}_a' for c in na_columns_list})
+    )
+
+    # left join and coalesce
+    df_q = df_q.join(df_temp, on=['permno', 'date'], how='left')
+    df_q = df_q.with_columns([
+        pl.coalesce([pl.col(c), pl.col(f'{c}_a')]).alias(c)
+        for c in na_columns_list
+    ]).drop([f'{c}_a' for c in na_columns_list])
+
     return df_q
 
+# def fillna_atq(df_q, df_a):
+#     # fina columns are na in df_q and exist in df_a
+#     df_q_na_list = df_q.columns[df_q.isna().any()].tolist()
+#     df_a_columns_list = df_a.columns.values.tolist()
+#     list_temp = list(set(df_q_na_list) & set(df_a_columns_list))
+#     # remove mom columns, mom chars are same in annual and quarterly
+#     na_columns_list = []
+#     for i in list_temp:
+#         if re.match(r'mom.', i) is None:
+#             na_columns_list.append(i)
+#     # get annual columns from df_a
+#     df_temp = df_a[na_columns_list].copy()
+#     df_temp[['permno', 'date']] = df_a[['permno', 'date']].copy()
+#     # rename annual columns in the form of 'chars_a'
+#     for na_column in na_columns_list:
+#         df_temp = df_temp.rename(columns={'%s' % na_column: '%s_a' % na_column})
+#     df_temp = df_temp.reset_index(drop=True)
+#     # use annual chars to fill quarterly na
+#     df_q = pd.merge(df_q, df_temp, how='left', on=['permno', 'date'])
+#     for na_column in na_columns_list:
+#         df_q['%s' % na_column] = np.where(df_q['%s' % na_column].isnull(), df_q['%s_a' % na_column], df_q['%s' % na_column])
+#         df_q = df_q.drop(['%s_a' % na_column], axis=1)
+#     return df_q
 
-def fillna_ind(df, method, ffi, not_fill_col):
-    df_fill = pd.DataFrame()
-    na_columns_list = df.columns[df.isna().any()].tolist()
-    for na_column in na_columns_list:
-        if na_column in not_fill_col:
-            continue
-        else:
-            if method == 'mean':
-                df_temp = df.groupby(['date', 'ffi%s' % ffi])['%s' % na_column].mean()
-            elif method == 'median':
-                df_temp = df.groupby(['date', 'ffi%s' % ffi])['%s' % na_column].median()
-            else:
-                None
-            df_fill = pd.concat([df_fill, df_temp], axis=1)
-            if method == 'mean':
-                df_fill = df_fill.rename(columns={'%s' % na_column: '%s_mean' % na_column})
-            elif method == 'median':
-                df_fill = df_fill.rename(columns={'%s' % na_column: '%s_median' % na_column})
-            else:
-                None
-    df_fill = df_fill.reset_index()
-    # reset multiple index to date and ffi code
-    # df_fill['index'] = df_fill['index'].astype(str)
-    # index_temp = df_fill['index'].str.split(',', expand=True)
-    # index_temp.columns = ['date', 'ffi%s' % ffi]
-    # index_temp['date'] = index_temp['date'].str.strip('(Timestamp(\' \')')
-    # index_temp['ffi%s' % ffi] = index_temp['ffi%s' % ffi].str.strip(')')
-    # df_fill[['date', 'ffi%s' % ffi]] = index_temp[['date', 'ffi%s' % ffi]]
-    # df_fill = df_fill.drop(['index'], axis=1)
-    df_fill = df_fill.rename(columns={'level_0':'date', 'level_1':'ffi49'})
-    df_fill['date'] = pd.to_datetime(df_fill['date'])
-    df_fill['ffi49'] = df_fill['ffi49'].astype(int)
-    # fill na
-    df = pd.merge(df, df_fill, how='left', on=['date', 'ffi%s' % ffi])
-    for na_column in na_columns_list:
-        if na_column in not_fill_col:
-            continue
-        else:
-            if method == 'mean':
-                df['%s' % na_column] = df['%s' % na_column].fillna(df['%s_mean' % na_column])
-                df = df.drop(['%s_mean' % na_column], axis=1)
-            elif method == 'median':
-                df['%s' % na_column] = df['%s' % na_column].fillna(df['%s_median' % na_column])
-                df = df.drop(['%s_median' % na_column], axis=1)
-            else:
-                None
+def fillna_ind(
+    df: pl.DataFrame,
+    method: str,
+    ffi: int,
+    not_fill_col: list
+) -> pl.DataFrame:
+    """
+    Fill null values using industry-level mean or median grouped by date + ffi code.
+    """
+    ffi_col = f'ffi{ffi}'
+    na_columns_list = [
+        c for c in df.columns
+        if df[c].is_null().any() and c not in not_fill_col
+    ]
+
+    if not na_columns_list:
+        return df
+
+    if method == 'mean':
+        agg_exprs = [pl.col(c).mean().alias(f'{c}_fill') for c in na_columns_list]
+    elif method == 'median':
+        agg_exprs = [pl.col(c).median().alias(f'{c}_fill') for c in na_columns_list]
+    else:
+        raise ValueError(f"method must be 'mean' or 'median', got '{method}'")
+
+    df_fill = (
+        df.group_by(['date', ffi_col])
+        .agg(agg_exprs)
+    )
+
+    df = df.join(df_fill, on=['date', ffi_col], how='left')
+    df = df.with_columns([
+        pl.coalesce([pl.col(c), pl.col(f'{c}_fill')]).alias(c)
+        for c in na_columns_list
+    ]).drop([f'{c}_fill' for c in na_columns_list])
+
     return df
 
+# def fillna_ind(df, method, ffi, not_fill_col):
+#     df_fill = pd.DataFrame()
+#     na_columns_list = df.columns[df.isna().any()].tolist()
+#     for na_column in na_columns_list:
+#         if na_column in not_fill_col:
+#             continue
+#         else:
+#             if method == 'mean':
+#                 df_temp = df.groupby(['date', 'ffi%s' % ffi])['%s' % na_column].mean()
+#             elif method == 'median':
+#                 df_temp = df.groupby(['date', 'ffi%s' % ffi])['%s' % na_column].median()
+#             else:
+#                 None
+#             df_fill = pd.concat([df_fill, df_temp], axis=1)
+#             if method == 'mean':
+#                 df_fill = df_fill.rename(columns={'%s' % na_column: '%s_mean' % na_column})
+#             elif method == 'median':
+#                 df_fill = df_fill.rename(columns={'%s' % na_column: '%s_median' % na_column})
+#             else:
+#                 None
+#     df_fill = df_fill.reset_index()
+#     # reset multiple index to date and ffi code
+#     # df_fill['index'] = df_fill['index'].astype(str)
+#     # index_temp = df_fill['index'].str.split(',', expand=True)
+#     # index_temp.columns = ['date', 'ffi%s' % ffi]
+#     # index_temp['date'] = index_temp['date'].str.strip('(Timestamp(\' \')')
+#     # index_temp['ffi%s' % ffi] = index_temp['ffi%s' % ffi].str.strip(')')
+#     # df_fill[['date', 'ffi%s' % ffi]] = index_temp[['date', 'ffi%s' % ffi]]
+#     # df_fill = df_fill.drop(['index'], axis=1)
+#     df_fill = df_fill.rename(columns={'level_0':'date', 'level_1':'ffi49'})
+#     df_fill['date'] = pd.to_datetime(df_fill['date'])
+#     df_fill['ffi49'] = df_fill['ffi49'].astype(int)
+#     # fill na
+#     df = pd.merge(df, df_fill, how='left', on=['date', 'ffi%s' % ffi])
+#     for na_column in na_columns_list:
+#         if na_column in not_fill_col:
+#             continue
+#         else:
+#             if method == 'mean':
+#                 df['%s' % na_column] = df['%s' % na_column].fillna(df['%s_mean' % na_column])
+#                 df = df.drop(['%s_mean' % na_column], axis=1)
+#             elif method == 'median':
+#                 df['%s' % na_column] = df['%s' % na_column].fillna(df['%s_median' % na_column])
+#                 df = df.drop(['%s_median' % na_column], axis=1)
+#             else:
+#                 None
+#     return df
 
-def fillna_all(df, method, not_fill_col):
-    df_fill = pd.DataFrame()
-    na_columns_list = df.columns[df.isna().any()].tolist()
-    for na_column in na_columns_list:
-        if na_column in not_fill_col:
-            continue
-        else:
-            if method == 'mean':
-                df_temp = df.groupby(['date'])['%s' % na_column].mean()
-            elif method == 'median':
-                df_temp = df.groupby(['date'])['%s' % na_column].median()
-            else:
-                None
-            df_fill = pd.concat([df_fill, df_temp], axis=1)
-            if method == 'mean':
-                df_fill = df_fill.rename(columns={'%s' % na_column: '%s_mean' % na_column})
-            elif method == 'median':
-                df_fill = df_fill.rename(columns={'%s' % na_column: '%s_median' % na_column})
-            else:
-                None
-    df_fill = df_fill.reset_index()
-    # reset multiple index to date and ffi code
-    df_fill['index'] = df_fill['index'].astype(str)
-    index_temp = df_fill['index'].str.split(',', expand=True)
-    index_temp.columns = ['date']
-    index_temp['date'] = index_temp['date'].str.strip('(Timestamp(\' \')')
-    df_fill[['date']] = index_temp[['date']]
-    df_fill = df_fill.drop(['index'], axis=1)
-    df_fill['date'] = pd.to_datetime(df_fill['date'])
-    # fill na
-    df = pd.merge(df, df_fill, how='left', on='date')
-    for na_column in na_columns_list:
-        if na_column in not_fill_col:
-            continue
-        else:
-            if method == 'mean':
-                df['%s' % na_column] = df['%s' % na_column].fillna(df['%s_mean' % na_column])
-                df = df.drop(['%s_mean' % na_column], axis=1)
-            elif method == 'median':
-                df['%s' % na_column] = df['%s' % na_column].fillna(df['%s_median' % na_column])
-                df = df.drop(['%s_median' % na_column], axis=1)
-            else:
-                None
+def fillna_all(
+    df: pl.DataFrame,
+    method: str,
+    not_fill_col: list
+) -> pl.DataFrame:
+    """
+    Fill null values using cross-sectional mean or median grouped by date.
+    """
+    na_columns_list = [
+        c for c in df.columns
+        if df[c].is_null().any() and c not in not_fill_col
+    ]
+
+    if not na_columns_list:
+        return df
+
+    if method == 'mean':
+        agg_exprs = [pl.col(c).mean().alias(f'{c}_fill') for c in na_columns_list]
+    elif method == 'median':
+        agg_exprs = [pl.col(c).median().alias(f'{c}_fill') for c in na_columns_list]
+    else:
+        raise ValueError(f"method must be 'mean' or 'median', got '{method}'")
+
+    df_fill = (
+        df.group_by('date')
+        .agg(agg_exprs)
+    )
+
+    df = df.join(df_fill, on='date', how='left')
+    df = df.with_columns([
+        pl.coalesce([pl.col(c), pl.col(f'{c}_fill')]).alias(c)
+        for c in na_columns_list
+    ]).drop([f'{c}_fill' for c in na_columns_list])
+
     return df
 
+# def fillna_all(df, method, not_fill_col):
+#     df_fill = pd.DataFrame()
+#     na_columns_list = df.columns[df.isna().any()].tolist()
+#     for na_column in na_columns_list:
+#         if na_column in not_fill_col:
+#             continue
+#         else:
+#             if method == 'mean':
+#                 df_temp = df.groupby(['date'])['%s' % na_column].mean()
+#             elif method == 'median':
+#                 df_temp = df.groupby(['date'])['%s' % na_column].median()
+#             else:
+#                 None
+#             df_fill = pd.concat([df_fill, df_temp], axis=1)
+#             if method == 'mean':
+#                 df_fill = df_fill.rename(columns={'%s' % na_column: '%s_mean' % na_column})
+#             elif method == 'median':
+#                 df_fill = df_fill.rename(columns={'%s' % na_column: '%s_median' % na_column})
+#             else:
+#                 None
+#     df_fill = df_fill.reset_index()
+#     # reset multiple index to date and ffi code
+#     df_fill['index'] = df_fill['index'].astype(str)
+#     index_temp = df_fill['index'].str.split(',', expand=True)
+#     index_temp.columns = ['date']
+#     index_temp['date'] = index_temp['date'].str.strip('(Timestamp(\' \')')
+#     df_fill[['date']] = index_temp[['date']]
+#     df_fill = df_fill.drop(['index'], axis=1)
+#     df_fill['date'] = pd.to_datetime(df_fill['date'])
+#     # fill na
+#     df = pd.merge(df, df_fill, how='left', on='date')
+#     for na_column in na_columns_list:
+#         if na_column in not_fill_col:
+#             continue
+#         else:
+#             if method == 'mean':
+#                 df['%s' % na_column] = df['%s' % na_column].fillna(df['%s_mean' % na_column])
+#                 df = df.drop(['%s_mean' % na_column], axis=1)
+#             elif method == 'median':
+#                 df['%s' % na_column] = df['%s' % na_column].fillna(df['%s_median' % na_column])
+#                 df = df.drop(['%s_median' % na_column], axis=1)
+#             else:
+#                 None
+#     return df
 
-def standardize(df):
-    # exclude the the information columns
-    col_names = df.columns.values.tolist()
-    list_to_remove = ['permno', 'date', 'date', 'datadate', 'gvkey', 'sic', 'count', 'exchcd', 'shrcd', 'ffi49', 'ret',
-                      'retadj', 'retx', 'lag_me', 'ticker', 'conm', 'comnam', 'prc', 'shrout']
-    col_names = list(set(col_names).difference(set(list_to_remove)))
+# @TODO: def -> pl.DataFrame, 统一去掉
+def standardize(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Cross-sectionally rank and standardize all char columns to [-1, 1].
+    Excludes info columns. Null ranks are filled with 0.
+    """
+    INFO_COLS = {
+        'permno', 'date', 'datadate', 'gvkey', 'sic', 'count',
+        'exchcd', 'shrcd', 'ffi49', 'ret', 'retadj', 'retx',
+        'lag_me', 'ticker', 'conm', 'comnam', 'prc', 'shrout'
+    }
+    col_names = [c for c in df.columns if c not in INFO_COLS]
+
     for col_name in tqdm(col_names):
-        print('processing %s' % col_name)
-        # count the non-missing number of factors, we only count non-missing values
-        unique_count = df.dropna(subset=['%s' % col_name]).groupby(['date'])['%s' % col_name].unique().apply(len)
-        unique_count = pd.DataFrame(unique_count).reset_index()
-        unique_count.columns = ['date', 'count']
-        df = pd.merge(df, unique_count, how='left', on=['date'])
-        # ranking, and then standardize the data
-        df['%s_rank' % col_name] = df.groupby(['date'])['%s' % col_name].rank(method='dense')
-        df['rank_%s' % col_name] = (df['%s_rank' % col_name] - 1) / (df['count'] - 1) * 2 - 1
-        df = df.drop(['%s_rank' % col_name, '%s' % col_name, 'count'], axis=1)
-        df['rank_%s' % col_name] = df['rank_%s' % col_name].fillna(0)
+        # dense rank within each date, then scale to [-1, 1]
+        df = df.with_columns([
+            pl.col(col_name)
+              .rank(method='dense')
+              .over('date')
+              .alias(f'_rank_{col_name}')
+        ])
+        # count non-null unique values per date
+        df = df.with_columns([
+            pl.col(f'_rank_{col_name}')
+              .max()
+              .over('date')
+              .alias('_max_rank')
+        ])
+        df = df.with_columns([
+            pl.when(pl.col('_max_rank') > 1)
+              .then(
+                (pl.col(f'_rank_{col_name}') - 1) /
+                (pl.col('_max_rank') - 1) * 2 - 1
+              )
+              .otherwise(None)
+              .fill_null(0)
+              .alias(f'rank_{col_name}')
+        ]).drop([col_name, f'_rank_{col_name}', '_max_rank'])
+
     return df
+
+# def standardize(df):
+#     # exclude the the information columns
+#     col_names = df.columns.values.tolist()
+#     list_to_remove = ['permno', 'date', 'date', 'datadate', 'gvkey', 'sic', 'count', 'exchcd', 'shrcd', 'ffi49', 'ret',
+#                       'retadj', 'retx', 'lag_me', 'ticker', 'conm', 'comnam', 'prc', 'shrout']
+#     col_names = list(set(col_names).difference(set(list_to_remove)))
+#     for col_name in tqdm(col_names):
+#         print('processing %s' % col_name)
+#         # count the non-missing number of factors, we only count non-missing values
+#         unique_count = df.dropna(subset=['%s' % col_name]).groupby(['date'])['%s' % col_name].unique().apply(len)
+#         unique_count = pd.DataFrame(unique_count).reset_index()
+#         unique_count.columns = ['date', 'count']
+#         df = pd.merge(df, unique_count, how='left', on=['date'])
+#         # ranking, and then standardize the data
+#         df['%s_rank' % col_name] = df.groupby(['date'])['%s' % col_name].rank(method='dense')
+#         df['rank_%s' % col_name] = (df['%s_rank' % col_name] - 1) / (df['count'] - 1) * 2 - 1
+#         df = df.drop(['%s_rank' % col_name, '%s' % col_name, 'count'], axis=1)
+#         df['rank_%s' % col_name] = df['rank_%s' % col_name].fillna(0)
+#     return df
