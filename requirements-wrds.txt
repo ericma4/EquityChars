@@ -1,0 +1,18 @@
+# Minimal environment for running EquityChars with WRDS access
+# Python 3.10+ recommended
+
+wrds
+pandas
+numpy
+pyarrow
+tqdm
+pandasql
+
+# Polars-based (chars_ciz) pipeline
+polars
+polars-ols
+duckdb
+
+# Explicit DB deps (wrds uses SQLAlchemy/psycopg2)
+sqlalchemy
+psycopg2-binary

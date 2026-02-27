@@ -405,7 +405,7 @@ data_rawa = data_rawa.with_columns([
 ])
 
 data_rawa = data_rawa.with_columns([
-    pl.when(pl.col('gvkey') != pl.col('gvkey').shift(1))
+    pl.when(pl.col('gvkey') != pl.col('gvkey').shift(1).over('permno')) #  2026-02-12: add over
       .then(None)
       .otherwise(
         (pl.col('csho') * pl.col('ajex')).log()
@@ -486,25 +486,41 @@ data_rawa = data_rawa.with_columns([
 #################### Follow Hafzalla, Lundholm, and Van Winkle (2011) and GHZ on 2025.02.28 ####################
 # pctacc
 data_rawa = data_rawa.with_columns([
-    pl.when(pl.col('ib') == 0)
-      .then((pl.col('ib') - pl.col('oancf')) / 0.01)
-      .when(pl.col('oancf').is_null())
-      .then(
-        (((pl.col('act') - pl.col('act_l1')) - (pl.col('che') - pl.col('che_l1'))) -
-         ((pl.col('lct') - pl.col('lct_l1')) - pl.col('dlc') - pl.col('dlc_l1') -
-          ((pl.col('txp') - pl.col('txp_l1')).fill_null(0) - pl.col('dp')))) / pl.col('ib').abs()
-      )
-      .when(pl.col('oancf').is_null() & (pl.col('ib') == 0))
-      .then(
-        (((pl.col('act') - pl.col('act_l1')) - (pl.col('che') - pl.col('che_l1'))) -
-         ((pl.col('lct') - pl.col('lct_l1')) - pl.col('dlc') - pl.col('dlc_l1') -
-          ((pl.col('txp') - pl.col('txp_l1')).fill_null(0) - pl.col('dp')))) / 0.01
-      )
-      .otherwise(
-        (pl.col('ib') - pl.col('oancf')) / pl.col('ib').replace(0, None).abs()
-      )
+    pl.col(c).fill_null(0) for c in ['oancf', 'act', 'che', 'lct', 'dlc', 'txp', 'dp']
+])
+
+accruals_a = (
+    ((pl.col('act') - pl.col('act_l1')) - (pl.col('che') - pl.col('che_l1'))) -
+    ((pl.col('lct') - pl.col('lct_l1')) - (pl.col('dlc') - pl.col('dlc_l1')) -
+     (pl.col('txp') - pl.col('txp_l1')) - pl.col('dp'))
+)
+
+data_rawa = data_rawa.with_columns([
+    pl.when(pl.col('oancf') != 0)
+      .then((pl.col('ib') - pl.col('oancf')) / pl.col('ib').abs().replace(0, 0.01))
+      .otherwise(accruals_a / pl.col('ib').abs().replace(0, 0.01))
       .alias('pctacc')
 ])
+# data_rawa = data_rawa.with_columns([
+#     pl.when(pl.col('ib') == 0)
+#       .then((pl.col('ib') - pl.col('oancf')) / 0.01)
+#       .when(pl.col('oancf').is_null())
+#       .then(
+#         (((pl.col('act') - pl.col('act_l1')) - (pl.col('che') - pl.col('che_l1'))) -
+#          ((pl.col('lct') - pl.col('lct_l1')) - pl.col('dlc') - pl.col('dlc_l1') -
+#                     ((pl.col('txp') - pl.col('txp_l1')).fill_null(0) - pl.col('dp')))) / pl.col('ib').abs().replace(0, None)
+#       )
+#       .when(pl.col('oancf').is_null() & (pl.col('ib') == 0))
+#       .then(
+#         (((pl.col('act') - pl.col('act_l1')) - (pl.col('che') - pl.col('che_l1'))) -
+#          ((pl.col('lct') - pl.col('lct_l1')) - pl.col('dlc') - pl.col('dlc_l1') -
+#           ((pl.col('txp') - pl.col('txp_l1')).fill_null(0) - pl.col('dp')))) / 0.01
+#       )
+#       .otherwise(
+#         (pl.col('ib') - pl.col('oancf')) / pl.col('ib').replace(0, None).abs()
+#       )
+#       .alias('pctacc')
+# ])
 
 # sgr
 data_rawa = data_rawa.with_columns([
@@ -926,7 +942,10 @@ data_rawa = data_rawa.with_columns([
 # ala
 data_rawa = data_rawa.with_columns([
     pl.col('gdwl').fill_null(0),
-    pl.col('intan').fill_null(0)
+    pl.col('intan').fill_null(0),
+    pl.col('che').fill_null(0),
+    pl.col('act').fill_null(0),
+    pl.col('at').fill_null(0)
 ])
 
 data_rawa = data_rawa.with_columns([
@@ -1488,23 +1507,39 @@ data_rawq = data_rawq.with_columns([
 
 # pctacc - using nested when/then/otherwise to replicate np.select behavior
 data_rawq = data_rawq.with_columns([
-    pl.when((pl.col('oancfy').is_null()) & (pl.col('ibq') == 0))
-      .then(
-          ((pl.col('actq') - pl.col('actq_l4')) - (pl.col('cheq') - pl.col('cheq_l4')) -
-           (pl.col('lctq') - pl.col('lctq_l4')) + (pl.col('dlcq') - pl.col('dlcq_l4')) +
-           (pl.col('txpq') - pl.col('txpq_l4')).fill_null(0) - pl.col('dpq')) / 0.01
-      )
-      .when(pl.col('oancfy').is_null())
-      .then(
-          ((pl.col('actq') - pl.col('actq_l4')) - (pl.col('cheq') - pl.col('cheq_l4')) -
-           (pl.col('lctq') - pl.col('lctq_l4')) + (pl.col('dlcq') - pl.col('dlcq_l4')) +
-           (pl.col('txpq') - pl.col('txpq_l4')).fill_null(0) - pl.col('dpq')) / pl.col('ibq').abs().replace(0, None)
-      )
-      .when(pl.col('ibq') == 0)
-      .then((pl.col('ibq') - pl.col('oancfy')) / 0.01)
-      .otherwise((pl.col('ibq') - pl.col('oancfy')) / pl.col('ibq').abs().replace(0, None))
+    pl.col(c).fill_null(0) for c in ['oancfy', 'actq', 'cheq', 'lctq', 'dlcq', 'txpq', 'dpq']
+])
+
+accruals_q = (
+    (pl.col('actq') - pl.col('actq_l4')) - (pl.col('cheq') - pl.col('cheq_l4')) -
+    (pl.col('lctq') - pl.col('lctq_l4')) + (pl.col('dlcq') - pl.col('dlcq_l4')) +
+    (pl.col('txpq') - pl.col('txpq_l4')) - pl.col('dpq')
+)
+
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('oancfy') != 0)
+      .then((pl.col('ibq') - pl.col('oancfy')) / pl.col('ibq').abs().replace(0, 0.01))
+      .otherwise(accruals_q / pl.col('ibq').abs().replace(0, 0.01))
       .alias('pctacc')
 ])
+# data_rawq = data_rawq.with_columns([
+#     pl.when((pl.col('oancfy').is_null()) & (pl.col('ibq') == 0))
+#       .then(
+#           ((pl.col('actq') - pl.col('actq_l4')) - (pl.col('cheq') - pl.col('cheq_l4')) -
+#            (pl.col('lctq') - pl.col('lctq_l4')) + (pl.col('dlcq') - pl.col('dlcq_l4')) +
+#            (pl.col('txpq') - pl.col('txpq_l4')).fill_null(0) - pl.col('dpq')) / 0.01
+#       )
+#       .when(pl.col('oancfy').is_null())
+#       .then(
+#           ((pl.col('actq') - pl.col('actq_l4')) - (pl.col('cheq') - pl.col('cheq_l4')) -
+#            (pl.col('lctq') - pl.col('lctq_l4')) + (pl.col('dlcq') - pl.col('dlcq_l4')) +
+#            (pl.col('txpq') - pl.col('txpq_l4')).fill_null(0) - pl.col('dpq')) / pl.col('ibq').abs().replace(0, None)
+#       )
+#       .when(pl.col('ibq') == 0)
+#       .then((pl.col('ibq') - pl.col('oancfy')) / 0.01)
+#       .otherwise((pl.col('ibq') - pl.col('oancfy')) / pl.col('ibq').abs().replace(0, None))
+#       .alias('pctacc')
+# ])
 
 # gma
 data_rawq = data_rawq.with_columns([
@@ -1611,17 +1646,21 @@ data_rawq = data_rawq.with_columns([
 ])
 
 # noa
+# 2026-02-12 updates:
 data_rawq = data_rawq.with_columns([
-    pl.when(pl.col('ivaoq').is_null()).then(0).otherwise(1).alias('ivaoq'),
-    pl.when(pl.col('dlcq').is_null()).then(0).otherwise(1).alias('dlcq'),
-    pl.when(pl.col('dlttq').is_null()).then(0).otherwise(1).alias('dlttq'),
-    pl.when(pl.col('mibq').is_null()).then(0).otherwise(1).alias('mibq'),
-    pl.when(pl.col('pstkq').is_null()).then(0).otherwise(1).alias('pstkq')
+    pl.col('ivaoq').fill_null(0),
+    pl.col('dlcq').fill_null(0),
+    pl.col('dlttq').fill_null(0),
+    pl.col('mibq').fill_null(0),
+    pl.col('pstkq').fill_null(0)
 ])
 data_rawq = data_rawq.with_columns([
-    ((pl.col('atq') - pl.col('cheq') - pl.col('ivaoq')) -
-     (pl.col('atq') - pl.col('dlcq') - pl.col('dlttq') - pl.col('mibq') -
-      pl.col('pstkq') - pl.col('ceqq')) / pl.col('atq_l4').replace(0, None)).alias('noa')
+    pl.when(pl.col('atq_l4') != 0)
+      .then(((pl.col('atq') - pl.col('cheq') - pl.col('ivaoq')) -
+             (pl.col('atq') - pl.col('dlcq') - pl.col('dlttq') - pl.col('mibq') -
+              pl.col('pstkq') - pl.col('ceqq'))) / pl.col('atq_l4'))
+      .otherwise(None)
+      .alias('noa')
 ])
 
 # rna
@@ -1997,6 +2036,49 @@ crsp_mom = crsp_mom.with_columns([
     (ttm12('mdivpay', crsp_mom) / pl.col('me').replace(0, None)).alias('dy')
 ])
 
+# 2026-02-11 updates: Add size group classification
+# NYSE monthly size cutoffs and size group classification
+nyse_cutoffs = (crsp_mom
+    .filter(
+        (pl.col('primaryexch') == 'N') &
+        (pl.col('sharetype') == 'NS') &
+        (pl.col('securitytype') == 'EQTY') &
+        (pl.col('securitysubtype') == 'COM') &
+        (pl.col('usincflg') == 'Y') &
+        (pl.col('issuertype').is_in(['ACOR', 'CORP'])) &
+        pl.col('me').is_not_null()
+    )
+    .group_by('jdate')
+    .agg([
+        pl.len().alias('n'),
+        pl.col('me').quantile(0.01, interpolation='higher').alias('nyse_p1'),
+        pl.col('me').quantile(0.20, interpolation='higher').alias('nyse_p20'),
+        pl.col('me').quantile(0.50, interpolation='higher').alias('nyse_p50'),
+        pl.col('me').quantile(0.80, interpolation='higher').alias('nyse_p80')
+    ])
+)
+
+crsp_mom = (crsp_mom
+    .join(nyse_cutoffs, on='jdate', how='left')
+    .with_columns([
+        pl.when(pl.col('me').is_null())
+          .then(None)
+          .when(pl.col('nyse_p80').is_null())
+          .then(pl.lit('mega'))
+          .when(pl.col('me') >= pl.col('nyse_p80'))
+          .then(pl.lit('mega'))
+          .when(pl.col('me') >= pl.col('nyse_p50'))
+          .then(pl.lit('large'))
+          .when(pl.col('me') >= pl.col('nyse_p20'))
+          .then(pl.lit('small'))
+          .when(pl.col('me') >= pl.col('nyse_p1'))
+          .then(pl.lit('micro'))
+          .otherwise(pl.lit('nano'))
+          .alias('size_grp')
+    ])
+    .drop(['n', 'nyse_p1', 'nyse_p20', 'nyse_p50', 'nyse_p80'])
+)
+
 # def moms(start, end, df):
 #     """
 #
@@ -2158,7 +2240,7 @@ chars_a = data_rawa.select(['cusip_comp', 'cusip_crsp', 'hdrcusip', 'gvkey', 'pe
                      'pchdepr', 'chadv', 'pchcapx', 'grcapx', 'grGW', 'currat', 'pchcurrat', 'quick', 'pchquick',
                      'salecash', 'salerec', 'saleinv', 'pchsaleinv', 'realestate', 'obklg', 'chobklg', 'grltnoa',
                      'conv', 'chdrc', 'rdbias', 'operprof', 'capxint', 'xadint', 'chpm', 'ala', 'alm',
-                     'mom1m', 'mom6m', 'mom12m', 'mom60m', 'mom36m', 'seas1a', 'me', 'hire', 'herf', 'bm_ia',
+                     'mom1m', 'mom6m', 'mom12m', 'mom60m', 'mom36m', 'seas1a', 'me', 'size_grp', 'hire', 'herf', 'bm_ia',
                      'me_ia', 'turn', 'dolvol', 'absacc', 'age', 'cashpr', 'chatoia', 'chempia', 'chmom', 'chpmia',
                      'convind', 'divi', 'divo', 'secured', 'securedind', 'sin', 'cfp_ia', 'indmom', 'pchcapx_ia',
                      'tang', 'tb', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6'])
@@ -2265,7 +2347,7 @@ chars_q = data_rawq.select(['gvkey', 'permno', 'datadate', 'jdate', 'sic', 'prim
                      'rdm', 'sgr', 'sp', 'invest', 'rd_sale', 'lgr', 'roa', 'depr', 'egr', 'roe',
                      'chato', 'chpm', 'chtx', 'noa', 'rna', 'pm', 'ato', 'stdcf',
                      'grltnoa', 'ala', 'alm', 'rsup', 'stdacc', 'sgrvol', 'roavol', 'scf', 'cinvest',
-                     'mom1m', 'mom6m', 'mom12m', 'mom60m', 'mom36m', 'seas1a', 'me', 'pscore', 'nincr',
+                     'mom1m', 'mom6m', 'mom12m', 'mom60m', 'mom36m', 'seas1a', 'me', 'size_grp', 'pscore', 'nincr',
                      'cfp_ia', 'bm_ia', 'me_ia', 'chatoia', 'chmom',
                      'turn', 'dolvol', 'cashpr', 'indmom', 'm7', 'm8'])
 

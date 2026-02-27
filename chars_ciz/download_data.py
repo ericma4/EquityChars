@@ -174,15 +174,15 @@ def get_tables_config(start_date='2020-01-01'):
         },
 
         # @TODO: original accounting and abr does not have consistent filter
+        # 2026-02-10 updates: confirm and use ccmxpf_lnkgist
         'ccm': {
             'output': os.path.join(OUTPUT_PATH, 'ccm.parquet'),
             'query': """
                 SELECT 
                     gvkey, lpermno as permno, linktype, linkprim, 
                     linkdt, linkenddt
-                FROM crsp.ccmxpf_linktable
-                WHERE substr(linktype,1,1)=''L''
-                AND (linkprim =''C'' or linkprim=''P'')
+                FROM crsp.ccmxpf_lnkhist
+                WHERE linktype IN (''LC'', ''LU'', ''LS'')
             """
         },
 
@@ -282,4 +282,4 @@ if __name__ == "__main__":
     password = input("Enter WRDS password: ")
     
     # Download all tables in one session (recommended to avoid connection timeouts)
-    download_all_tables(username, password, start_date='2024-01-01')
+    download_all_tables(username, password, start_date='1940-01-01')
