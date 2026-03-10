@@ -141,7 +141,7 @@ def get_tables_config(start_date='2020-01-01'):
                     
                     /* v3 my formula add*/
                     f.ajexq, f.cshoq, f.txditcq, f.npq, f.xrdy, f.xrdq, f.dpq, f.xintq, f.invtq, f.scstkcy, f.niq,
-                    f.oancfy, f.dlttq, f.rectq, f.acoq, f.apq, f.lcoq, f.loq, f.aoq,
+                    f.oancfy, f.oancfq, f.wcaptq, f.dlttq, f.rectq, f.acoq, f.apq, f.lcoq, f.loq, f.aoq,
                     
                     /* SUE calculation */
                     f.epspxq

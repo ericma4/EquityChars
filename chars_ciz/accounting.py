@@ -33,6 +33,7 @@ comp = (comp
     .unique()
 )
 
+# (fixed)2026-03-06: split into two with_columns to ensure mve_f uses cleaned csho
 # clean up csho and calculate market equity
 comp = comp.with_columns([
     # Replace 0 with null in csho
@@ -40,8 +41,10 @@ comp = comp.with_columns([
       .then(None)
       .otherwise(pl.col('csho'))
       .alias('csho'),
-    
-    # Calculate Compustat market equity
+])
+
+comp = comp.with_columns([
+    # Calculate Compustat market equity (now uses cleaned csho)
     (pl.col('csho') * pl.col('prcc_f')).alias('mve_f')
 ])
 
@@ -81,11 +84,7 @@ comp = comp.with_columns([
       .alias('dc')
 ])
 
-# Create xint0 and xsga0 (filled with 0 if null)
-comp = comp.with_columns([
-    pl.col('xint').fill_null(0).alias('xint0'),
-    pl.col('xsga').fill_null(0).alias('xsga0')
-])
+# (removed) xint0/xsga0: moved to _ANNUAL_FILL_ZERO unified block (xint/xsga filled, aliased later)
 
 # Replace 0 with null in ceq and at, then filter out null at
 comp = (comp
@@ -117,7 +116,7 @@ crsp = crsp.filter(
 )
 # crsp['exchcd'] = crsp['primaryexch'].map({'N': 1, 'A': 2, 'Q': 3})
 
-# TODO(fixed): control shrcd
+# (fixed): control shrcd
 crsp = crsp.filter(
     (pl.col('sharetype') == 'NS') &
     (pl.col('securitytype') == 'EQTY') &
@@ -133,7 +132,7 @@ crsp = crsp.filter(
 #                 (crsp.usincflg == 'Y') &
 #                 (crsp.issuertype.isin(['ACOR', 'CORP']))]
 
-# TODO: add primary_sec = [a,b,c,adr] baidu, jd - @todo
+# @TODO: add primary_sec = [a,b,c,adr] baidu, jd
 # crsp.StkMthSecurityData
 
 # Mapping CIZ variables to SIZ varialbles
@@ -168,10 +167,15 @@ crsp = (crsp
     ])
 )
 
-# if Market Equity is Nan then let return equals to 0
+# Unified fill_null(0) for CRSP data
+# ret/retx: missing return treated as 0 (no trading / delisting handled separately)
+_CRSP_FILL_ZERO = [
+    'ret',   # monthly return
+    'retx',  # ex-dividend return
+]
 crsp = crsp.with_columns([
-    pl.col('ret').fill_null(0),
-    pl.col('retx').fill_null(0)
+    pl.col(c).fill_null(0) for c in _CRSP_FILL_ZERO
+    if c in crsp.columns
 ])
 
 # impute me - sort and deduplicate
@@ -277,7 +281,8 @@ data_rawa = data_rawa.with_columns([
 ])
 
 # # deal with the duplicates
-# @Todo(fixed): check if there are any duplicates with full data, 检查以下是否需要，@todo: check数据比例，对比280-299执行与否的差别
+# check if there are any duplicates with full data
+# @Todo: check数据比例，对比280-299执行与否的差别
 # deal with the duplicates (align with data_rawq dedup logic)
 # Keep first occurrence for each group of ['datadate', 'permno', 'linkprim']
 data_rawa = data_rawa.with_row_index('_temp_idx')
@@ -336,6 +341,9 @@ _ANNUAL_FILL_ZERO = [
     'che', 'act', 'at',   # ala (also used elsewhere)
     'dp',                 # acc / cfroa
     'txp',                # acc (via fill_null(0) in formula - keep here for clarity)
+    'aco', 'ao', 'ap', 'lco', 'lo',   # grltnoa
+    'rect',                             # salerec, grltnoa
+    'invt', 
 ]
 data_rawa = data_rawa.with_columns([
     pl.col(c).fill_null(0) for c in _ANNUAL_FILL_ZERO
@@ -373,13 +381,16 @@ data_rawa = data_rawa.with_columns([
       .alias('ps')
 ])
 
-# delete fill_null(0)
-# data_rawa = data_rawa.with_columns([
-#     pl.col('ps').fill_null(0),
-#     pl.col('txditc').fill_null(0)
-# ])
+# (HXZ): "Stockholders' equity is the value reported by Compustat (item SEQ), if it is available. If not, we measure stockholders' equity as the book value of common equity (item CEQ) plus the par value of preferred stock (item PSTK), or the book value of assets (item AT) minus total liabilities (item LT)."
 
 # book equity
+data_rawa = data_rawa.with_columns([
+    pl.when(pl.col('seq').is_not_null()).then(pl.col('seq'))
+      .when(pl.col('ceq').is_not_null() & pl.col('pstk').is_not_null())
+      .then(pl.col('ceq') + pl.col('pstk'))
+      .otherwise(pl.col('at') - pl.col('lt'))
+      .alias('seq')
+])
 data_rawa = data_rawa.with_columns([
     (pl.col('seq') + pl.col('txditc') - pl.col('ps')).alias('be')
 ])
@@ -417,6 +428,10 @@ data_rawa = data_rawa.with_columns([
     pl.col('dlc').shift(1).over('permno').alias('dlc_l1'),
     pl.col('txp').shift(1).over('permno').alias('txp_l1')
 ])
+# txp is 0-filled; fill its lag to 0 as well (handles first obs per firm)
+data_rawa = data_rawa.with_columns([
+    pl.col('txp_l1').fill_null(0)
+])
 
 # acc calculation
 data_rawa = data_rawa.with_columns([
@@ -424,7 +439,7 @@ data_rawa = data_rawa.with_columns([
       .then(
         (((pl.col('act') - pl.col('act_l1')) - (pl.col('che') - pl.col('che_l1')) -
           (pl.col('lct') - pl.col('lct_l1')) + (pl.col('dlc') - pl.col('dlc_l1')) +
-          (pl.col('txp') - pl.col('txp_l1')).fill_null(0) - pl.col('dp')) / 
+          (pl.col('txp') - pl.col('txp_l1')) - pl.col('dp')) / 
          ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None))
       )
       .otherwise(
@@ -462,6 +477,8 @@ data_rawa = data_rawa.with_columns([
     pl.col('ajex').shift(1).over('permno').alias('ajex_l1')
 ])
 
+# log() result: fill_nan(0) handles log(0)→−inf/nan, fill_null(0) handles null input
+# order: fill_nan first then fill_null
 data_rawa = data_rawa.with_columns([
     pl.when(pl.col('gvkey') != pl.col('gvkey').shift(1).over('permno')) #  2026-02-12: add over
       .then(None)
@@ -477,20 +494,14 @@ data_rawa = data_rawa.with_columns([
 ])
 
 # op
-# delete fill_null(0)
-data_rawa = data_rawa.with_columns([
-    pl.col('cogs').alias('cogs0'),
-    pl.col('xint').alias('xint0'),
-    pl.col('xsga').alias('xsga0')
-])
-
+# cogs / xint / xsga are already 0-filled via _ANNUAL_FILL_ZERO; no alias needed
 data_rawa = data_rawa.with_columns([
     pl.when(pl.col('revt').is_null())
       .then(None)
       .when(pl.col('be').is_null())
       .then(None)
       .otherwise(
-        (pl.col('revt') - pl.col('cogs0') - pl.col('xsga0') - pl.col('xint0')) / pl.col('be').replace(0, None)
+        (pl.col('revt') - pl.col('cogs') - pl.col('xsga') - pl.col('xint')) / pl.col('be').replace(0, None)
       )
       .alias('op')
 ])
@@ -544,16 +555,16 @@ data_rawa = data_rawa.with_columns([
 
 #################### Follow Hafzalla, Lundholm, and Van Winkle (2011) and GHZ on 2025.02.28 ####################
 # pctacc
-# TODO(checked): check 0.01 - Handle case when ib == 0，是否是公式里需要的
+# (fixed)2026-03-06: Handle case when ib == 0
 # https://github.com/search?q=repo%3AOpenSourceAP%2FCrossSection%200.01&type=code
-# (fix)2026-02-27: the condition(oancf is null and ib == 0) should be before the other two conditions, otherwise it will be treated as oancf is null and then calculate the acc using the formula which has ib in the denominator, which will cause error since ib is 0.
 # (fix)2026-02-27: d(dlc) = dlc -dlc_l1, the parentnesis was wrong in the previous version.
+# 0.01 is pragmatic method for ib=0 case, can keep extreme value in sort and winsorization.
 data_rawa = data_rawa.with_columns([
     pl.when(pl.col('oancf').is_null() & (pl.col('ib') == 0))
       .then(
         (((pl.col('act') - pl.col('act_l1')) - (pl.col('che') - pl.col('che_l1'))) -
          ((pl.col('lct') - pl.col('lct_l1')) - (pl.col('dlc') - pl.col('dlc_l1')) -
-          ((pl.col('txp') - pl.col('txp_l1')).fill_null(0) - pl.col('dp')))) / 0.01
+          ((pl.col('txp') - pl.col('txp_l1')) - pl.col('dp')))) / 0.01
       )
       .when(pl.col('ib') == 0)
       .then((pl.col('ib') - pl.col('oancf')) / 0.01)
@@ -561,7 +572,7 @@ data_rawa = data_rawa.with_columns([
       .then(
         (((pl.col('act') - pl.col('act_l1')) - (pl.col('che') - pl.col('che_l1'))) -
          ((pl.col('lct') - pl.col('lct_l1')) - (pl.col('dlc') - pl.col('dlc_l1')) -
-          ((pl.col('txp') - pl.col('txp_l1')).fill_null(0) - pl.col('dp')))) / pl.col('ib').abs()
+          ((pl.col('txp') - pl.col('txp_l1')) - pl.col('dp')))) / pl.col('ib').abs()
       )
       .otherwise(
         (pl.col('ib') - pl.col('oancf')) / pl.col('ib').replace(0, None).abs()
@@ -578,10 +589,11 @@ data_rawa = data_rawa.with_columns([
 data_rawa = data_rawa.with_columns([
     pl.col('at').shift(2).over('permno').alias('at_l2')
 ])
+# @TODO: check at_l1/at
 data_rawa = data_rawa.with_columns([
     ((pl.col('sale') / ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None)) -
-     (pl.col('sale_l1') / ((pl.col('at') + pl.col('at_l2')) / 2).replace(0, None))).alias('chato')
-])
+     (pl.col('sale_l1') / ((pl.col('at_l1') + pl.col('at_l2')) / 2).replace(0, None))).alias('chato')
+]) # The lagged ATO's denominator should be avg(at_{t-1}, at_{t-2}).
 
 # chtx
 data_rawa = data_rawa.with_columns([
@@ -632,8 +644,10 @@ data_rawa = data_rawa.with_columns([
 # invest
 data_rawa = data_rawa.with_columns([
     pl.col('ppent').shift(1).over('permno').alias('ppent_l1'),
-    pl.col('invt').shift(1).over('permno').alias('invt_l1')
+    pl.col('invt').shift(1).over('permno').alias('invt_l1'),
+    pl.col('ppegt').shift(1).over('permno').alias('ppegt_l1') # add ppegt_l1
 ])
+# (fixed)2026-03-06: replace ppent_l1 with ppegt_l1 for consistency.
 data_rawa = data_rawa.with_columns([
     pl.when(pl.col('ppegt').is_null())
       .then(
@@ -641,7 +655,7 @@ data_rawa = data_rawa.with_columns([
          (pl.col('invt') - pl.col('invt_l1'))) / pl.col('at_l1').replace(0, None)
       )
       .otherwise(
-        ((pl.col('ppegt') - pl.col('ppent_l1')) + 
+        ((pl.col('ppegt') - pl.col('ppegt_l1')) + 
          (pl.col('invt') - pl.col('invt_l1'))) / pl.col('at_l1').replace(0, None)
       )
       .alias('invest')
@@ -703,7 +717,7 @@ data_rawa = data_rawa.with_columns([
 # chinv
 data_rawa = data_rawa.with_columns([
     ((pl.col('invt') - pl.col('invt_l1')) /
-     ((pl.col('at') + pl.col('at_l2')) / 2).replace(0, None)
+     ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None) # HXZ(A.3.15)
     ).alias('chinv')
 ])
 
@@ -729,11 +743,11 @@ data_rawa = data_rawa.with_columns([
 data_rawa = data_rawa.with_columns([
     pl.col('cogs').shift(1).over('permno').alias('cogs_l1')
 ])
-
+# (fixed)2026-03-06: replace sale with sale_l1 for consistency.
 data_rawa = data_rawa.with_columns([
     ((((pl.col('sale') - pl.col('cogs')) - (pl.col('sale_l1') - pl.col('cogs_l1'))) /
       (pl.col('sale_l1') - pl.col('cogs_l1')).replace(0, None)) -
-     ((pl.col('sale') - pl.col('sale_l1')) / pl.col('sale').replace(0, None))
+     ((pl.col('sale') - pl.col('sale_l1')) / pl.col('sale_l1').replace(0, None))
     ).alias('pchgm_pchsale')
 ])
 
@@ -752,22 +766,23 @@ data_rawa = data_rawa.with_columns([
 data_rawa = data_rawa.with_columns([
     pl.col('dp').shift(1).over('permno').alias('dp_l1')
 ])
-
 data_rawa = data_rawa.with_columns([
     (((pl.col('dp') / pl.col('ppent').replace(0, None)) - 
       (pl.col('dp_l1') / pl.col('ppent_l1').replace(0, None))) /
-     (pl.col('dp_l1') / pl.col('ppent').replace(0, None)).replace(0, None))
+     (pl.col('dp_l1') / pl.col('ppent_l1').replace(0, None)).replace(0, None))
     .alias('pchdepr')
 ])
 
-# chadv
+# chadv: (Lou, 2014) https://academic.oup.com/rfs/article/27/6/1797/1596985#114323634
 data_rawa = data_rawa.with_columns([
     pl.col('xad').shift(1).over('permno').alias('xad_l1')
 ])
 
 data_rawa = data_rawa.with_columns([
-    ((pl.col('xad') + 1).log() - (pl.col('xad_l1') + 1).log()).alias('chadv')
-])
+    (pl.col('xad').log() - pl.col('xad_l1').log()).alias('chadv')
+]).filter(
+    (pl.col('xad') >= 0.1) & (pl.col('xad_l1') >= 0.1) # HXZ(A.5.3)
+)
 
 # pchcapx
 data_rawa = data_rawa.with_columns([
@@ -793,9 +808,8 @@ data_rawa = data_rawa.with_columns([
 data_rawa = data_rawa.with_columns([
     pl.col('gdwl').shift(1).over('permno').alias('gdwl_l1')
 ])
-
 data_rawa = data_rawa.with_columns([
-    ((pl.col('gdwl') - pl.col('gdwl_l1')) / pl.col('gdwl').replace(0, None))
+    ((pl.col('gdwl') - pl.col('gdwl_l1')) / pl.col('gdwl_l1').replace(0, None))
     .alias('grGW')
 ])
 
@@ -944,8 +958,9 @@ data_rawa = data_rawa.with_columns([
 ])
 
 # operprof
+# cogs / xint / xsga are already 0-filled via _ANNUAL_FILL_ZERO
 data_rawa = data_rawa.with_columns([
-    ((pl.col('revt') - pl.col('cogs') - pl.col('xsga0') - pl.col('xint0')) /
+    ((pl.col('revt') - pl.col('cogs') - pl.col('xsga') - pl.col('xint')) /
      pl.col('ceq_l1').replace(0, None))
     .alias('operprof')
 ])
@@ -993,7 +1008,7 @@ data_rawa = data_rawa.with_columns([
      (pl.col('ib_l1') / pl.col('sale_l1').replace(0, None))).alias('chpm')
 ])
 
-# TODO(fixed): fill_null(0)在读取后统一处理
+# (fixed): fill_null(0)在读取后统一处理
 # ala
 data_rawa = data_rawa.with_columns([
     (pl.col('che') + 0.75 * (pl.col('act') - pl.col('che')) -
@@ -1379,7 +1394,13 @@ data_rawq = data_rawq.sort(['permno', 'jdate'])
 _QUARTERLY_FILL_ZERO = [
     'ivaoq', 'dlcq', 'dlttq', 'mibq', 'pstkq',  # noa
     'gdwlq', 'intanq',                            # ala
-    'xintq', 'xsgaq',                             # op (renamed to xintq0/xsgaq0 below)
+    'xintq', 'xsgaq',                             # op
+    'cheq',                                      # cash, ala, sacc
+    'actq', 'lctq',                              # acc, pctacc, sacc, pscore
+    'dpq',                                       # acc, grltnoa
+    'txditcq',                                   # beq
+    'acoq', 'aoq', 'apq', 'lcoq', 'loq',        # grltnoa
+    'txpq',                                      # acc / pctacc (lag diff)
 ]
 data_rawq = data_rawq.with_columns([
     pl.col(c).fill_null(0) for c in _QUARTERLY_FILL_ZERO
@@ -1389,19 +1410,20 @@ data_rawq = data_rawq.with_columns([
 # add industry code for quarterly data
 data_rawq = data_rawq.filter(pl.col('sic').is_not_null())  # gvkey 039750 does not have sic
 data_rawq = data_rawq.with_columns([
-    pl.col('sic').cast(pl.Int32).alias('sic')
+    pl.col('sic').cast(pl.Int64).alias('sic')
 ])
 
 data_rawq = data_rawq.with_columns([
     ffi49().alias('ffi49')
 ])
 data_rawq = data_rawq.with_columns([
-    pl.col('ffi49').fill_null(49).cast(pl.Int32).alias('ffi49')
+    pl.col('ffi49').fill_null(49).cast(pl.Int64).alias('ffi49')
 ])
 #######################################################################################################################
 #                                                   Quarterly Variables                                               #
 #######################################################################################################################
 # prepare be
+# @TODO: be(ps) beq(pstkq)具体的差异是什么
 data_rawq = data_rawq.with_columns([
     pl.when(pl.col('seqq') > 0)
       .then(pl.col('seqq') + pl.col('txditcq') - pl.col('pstkq'))
@@ -1412,6 +1434,7 @@ data_rawq = data_rawq.with_columns([
     pl.when(pl.col('beq') <= 0).then(None).otherwise(pl.col('beq')).alias('beq')
 ])
 
+# @TODO: dy_a dy_q的计算方式不同
 # dy
 # data_rawq['me_l1'] = data_rawq.groupby(['permno'])['me'].shift(1)
 # data_rawq['retdy'] = data_rawq['ret'] - data_rawq['retx']
@@ -1462,17 +1485,44 @@ data_rawq = data_rawq.with_columns([
     pl.col('dlcq').shift(4).over('permno').alias('dlcq_l4'),
     pl.col('txpq').shift(4).over('permno').alias('txpq_l4')
 ])
-
+# txpq is 0-filled; fill its lag to 0 as well (handles first 4 obs per firm)
 data_rawq = data_rawq.with_columns([
-    pl.when(pl.col('oancfy').is_null())
+    pl.col('txpq_l4').fill_null(0)
+])
+
+# (fixed)2026-03-06: read oancfq
+# Level 1: Use oancfq directly if available from Compustat
+# Level 2: Derive from oancfy (year-to-date) — oancfq = oancfy(t) - oancfy(t-1)
+data_rawq = data_rawq.with_columns([
+    pl.col('oancfy').shift(1).over('permno').alias('oancfy_l1')
+])
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('oancfq').is_not_null())
+      .then(pl.col('oancfq'))
+      .when(pl.col('fqtr') == 1)
+      .then(pl.col('oancfy'))
+      .otherwise(pl.col('oancfy') - pl.col('oancfy_l1'))
+      .alias('oancfq')
+])
+# Level 3: If still null, use ibq + dpq - wcaptq (wcaptq defaults to 0 if null)
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('oancfq').is_not_null())
+      .then(pl.col('oancfq'))
+      .otherwise(pl.col('ibq') + pl.col('dpq') - pl.col('wcaptq').fill_null(0))
+      .alias('oancfq')
+])
+
+# @TODO: if oancfq is not available, consider using oancfy to calculate quarterly oancfq: oancfy - oancfy_l4
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('oancfq').is_null())
       .then(
           ((pl.col('actq') - pl.col('actq_l4')) - (pl.col('cheq') - pl.col('cheq_l4')) -
            (pl.col('lctq') - pl.col('lctq_l4')) + (pl.col('dlcq') - pl.col('dlcq_l4')) +
-           (pl.col('txpq') - pl.col('txpq_l4')).fill_null(0) - pl.col('dpq')) / 
+           (pl.col('txpq') - pl.col('txpq_l4')) - pl.col('dpq')) / 
           ((pl.col('atq') + pl.col('atq_l4')) / 2).replace(0, None)
       )
       .otherwise(
-          (pl.col('ibq') - pl.col('oancfy')) / ((pl.col('atq') + pl.col('atq_l4')) / 2).replace(0, None)
+          (pl.col('ibq') - pl.col('oancfq')) / ((pl.col('atq') + pl.col('atq_l4')) / 2).replace(0, None)
       )
       .alias('acc')
 ])
@@ -1507,8 +1557,8 @@ data_rawq = data_rawq.with_columns([
     pl.col('cshoq').shift(4).over('permno').alias('cshoq_l4'),
     pl.col('ajexq').shift(4).over('permno').alias('ajexq_l4')
 ])
-# (fix)2026-02-26: add .fill_nan(0).fill_null(0) to keep consistent with annual ni calculation.
-# @TODO: 统一到前面加fill_nan(null) + full_null(0)
+# log() result: fill_nan(0) handles log(0)→−inf/nan, fill_null(0) handles null input
+# order: fill_nan first then fill_null
 data_rawq = data_rawq.with_columns([
     pl.when(pl.col('cshoq').is_null())
       .then(None)
@@ -1519,14 +1569,12 @@ data_rawq = data_rawq.with_columns([
       .alias('ni')
 ])
 
-# op
+# op: HXZ(A.4.12) scaled by book equity (current, not lagged)
+# data_rawq = data_rawq.with_columns([
+#     pl.col('beq').shift(4).over('permno').alias('beq_l4')
+# ])
 data_rawq = data_rawq.with_columns([
-    pl.col('xintq').alias('xintq0'),
-    pl.col('xsgaq').alias('xsgaq0'),
-    pl.col('beq').shift(4).over('permno').alias('beq_l4')
-])
-data_rawq = data_rawq.with_columns([
-    ((ttm4('revtq', data_rawq) - ttm4('cogsq', data_rawq) - ttm4('xsgaq0', data_rawq) - ttm4('xintq0', data_rawq)) / pl.col('beq_l4').replace(0, None)).alias('op')
+    ((ttm4('revtq', data_rawq) - ttm4('cogsq', data_rawq) - ttm4('xsgaq', data_rawq) - ttm4('xintq', data_rawq)) / pl.col('beq').replace(0, None)).alias('op')
 ])
 
 # chcsho
@@ -1575,24 +1623,34 @@ data_rawq = data_rawq.with_columns([
 #                                       abs(ttm4('ibq', data_rawq)))
 
 # pctacc - using nested when/then/otherwise to replicate np.select behavior
-# TODO(checked): check 0.01 - Handle case when ib == 0
-# https://github.com/search?q=repo%3AOpenSourceAP%2FCrossSection%200.01&type=code
+# @TODO: check oancf, oancfy, oancfq
+# (fixed, checked)2026-03-06: check 0.01
 data_rawq = data_rawq.with_columns([
-    pl.when((pl.col('oancfy').is_null()) & (pl.col('ibq') == 0))
+    pl.col('wcaptq').fill_null(0).alias('wcaptq')
+])
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('oancfq').is_not_null())
+      .then(pl.col('oancfq'))
+      .otherwise(pl.col('ibq') + pl.col('dpq') - pl.col('wcaptq'))
+      .alias('oancfq')
+])
+
+data_rawq = data_rawq.with_columns([
+    pl.when((pl.col('oancfq').is_null()) & (pl.col('ibq') == 0))
       .then(
           ((pl.col('actq') - pl.col('actq_l4')) - (pl.col('cheq') - pl.col('cheq_l4')) -
            (pl.col('lctq') - pl.col('lctq_l4')) + (pl.col('dlcq') - pl.col('dlcq_l4')) +
-           (pl.col('txpq') - pl.col('txpq_l4')).fill_null(0) - pl.col('dpq')) / 0.01
+           (pl.col('txpq') - pl.col('txpq_l4')) - pl.col('dpq')) / 0.01
       )
-      .when(pl.col('oancfy').is_null())
+      .when(pl.col('oancfq').is_null())
       .then(
           ((pl.col('actq') - pl.col('actq_l4')) - (pl.col('cheq') - pl.col('cheq_l4')) -
            (pl.col('lctq') - pl.col('lctq_l4')) + (pl.col('dlcq') - pl.col('dlcq_l4')) +
-           (pl.col('txpq') - pl.col('txpq_l4')).fill_null(0) - pl.col('dpq')) / pl.col('ibq').abs().replace(0, None)
+           (pl.col('txpq') - pl.col('txpq_l4')) - pl.col('dpq')) / pl.col('ibq').abs().replace(0, None)
       )
       .when(pl.col('ibq') == 0)
-      .then((pl.col('ibq') - pl.col('oancfy')) / 0.01)
-      .otherwise((pl.col('ibq') - pl.col('oancfy')) / pl.col('ibq').abs().replace(0, None))
+      .then((pl.col('ibq') - pl.col('oancfq')) / 0.01)
+      .otherwise((pl.col('ibq') - pl.col('oancfq')) / pl.col('ibq').abs().replace(0, None))
       .alias('pctacc')
 ])
 
@@ -1702,7 +1760,7 @@ data_rawq = data_rawq.with_columns([
 
 # noa
 # 2026-02-12 updates:
-# TODO(fixed): check data_rawq['ivaoq'] = np.where(data_rawq['ivaoq'].isnull(), 0, 1)
+# (fixed): check data_rawq['ivaoq'] = np.where(data_rawq['ivaoq'].isnull(), 0, 1)
 # (fix)2026-02-27: compute noa_raw (unscaled OA-OL in dollar) first, then scale by atq_l4 for noa.
 # rna and ato need noa_raw as denominator (Soliman 2008 DuPont decomposition), not the scaled noa.
 data_rawq = data_rawq.with_columns([
@@ -1800,6 +1858,7 @@ data_rawq = data_rawq.with_columns([
 # data_rawq['rsup'] = (data_rawq['saleq'] - data_rawq['saleq_l4'])/data_rawq['me']
 
 # stdsacc
+# @TODO: check actq/actq_4，和公式比较
 data_rawq = data_rawq.with_columns([
     pl.col('actq').shift(1).over('permno').alias('actq_l1'),
     pl.col('cheq').shift(1).over('permno').alias('cheq_l1'),
@@ -1853,6 +1912,7 @@ data_rawq = data_rawq.with_columns([
 ])
 
 # stdcf
+# @TODO：check
 data_rawq = data_rawq.with_columns([
     ((pl.col('ibq') / pl.col('saleq').replace(0, None)) - pl.col('sacc')).alias('scf')
 ])
@@ -1912,6 +1972,7 @@ data_rawq = data_rawq.with_columns([
 data_rawq = data_rawq.drop(['c_temp1', 'c_temp2', 'c_temp3', 'c_temp1_alt', 'c_temp2_alt', 'c_temp3_alt'])
 
 # nincr
+# @TODO: check equation
 data_rawq = data_rawq.with_columns([
     pl.col('ibq').shift(1).over('permno').alias('ibq_l1'),
     pl.col('ibq').shift(2).over('permno').alias('ibq_l2'),
@@ -1920,18 +1981,21 @@ data_rawq = data_rawq.with_columns([
     pl.col('ibq').shift(5).over('permno').alias('ibq_l5'),
     pl.col('ibq').shift(6).over('permno').alias('ibq_l6'),
     pl.col('ibq').shift(7).over('permno').alias('ibq_l7'),
-    pl.col('ibq').shift(8).over('permno').alias('ibq_l8')
+    pl.col('ibq').shift(8).over('permno').alias('ibq_l8'),
+    pl.col('ibq').shift(9).over('permno').alias('ibq_l9'),
+    pl.col('ibq').shift(10).over('permno').alias('ibq_l10'),
+    pl.col('ibq').shift(11).over('permno').alias('ibq_l11')
 ])
 
 data_rawq = data_rawq.with_columns([
-    pl.when(pl.col('ibq') > pl.col('ibq_l1')).then(1).otherwise(0).alias('nincr_temp1'),
-    pl.when(pl.col('ibq_l1') > pl.col('ibq_l2')).then(1).otherwise(0).alias('nincr_temp2'),
-    pl.when(pl.col('ibq_l2') > pl.col('ibq_l3')).then(1).otherwise(0).alias('nincr_temp3'),
-    pl.when(pl.col('ibq_l3') > pl.col('ibq_l4')).then(1).otherwise(0).alias('nincr_temp4'),
-    pl.when(pl.col('ibq_l4') > pl.col('ibq_l5')).then(1).otherwise(0).alias('nincr_temp5'),
-    pl.when(pl.col('ibq_l5') > pl.col('ibq_l6')).then(1).otherwise(0).alias('nincr_temp6'),
-    pl.when(pl.col('ibq_l6') > pl.col('ibq_l7')).then(1).otherwise(0).alias('nincr_temp7'),
-    pl.when(pl.col('ibq_l7') > pl.col('ibq_l8')).then(1).otherwise(0).alias('nincr_temp8')
+    pl.when(pl.col('ibq') > pl.col('ibq_l4')).then(1).otherwise(0).alias('nincr_temp1'),
+    pl.when(pl.col('ibq_l1') > pl.col('ibq_l5')).then(1).otherwise(0).alias('nincr_temp2'),
+    pl.when(pl.col('ibq_l2') > pl.col('ibq_l6')).then(1).otherwise(0).alias('nincr_temp3'),
+    pl.when(pl.col('ibq_l3') > pl.col('ibq_l7')).then(1).otherwise(0).alias('nincr_temp4'),
+    pl.when(pl.col('ibq_l4') > pl.col('ibq_l8')).then(1).otherwise(0).alias('nincr_temp5'),
+    pl.when(pl.col('ibq_l5') > pl.col('ibq_l9')).then(1).otherwise(0).alias('nincr_temp6'),
+    pl.when(pl.col('ibq_l6') > pl.col('ibq_l10')).then(1).otherwise(0).alias('nincr_temp7'),
+    pl.when(pl.col('ibq_l7') > pl.col('ibq_l11')).then(1).otherwise(0).alias('nincr_temp8')
 ])
 
 data_rawq = data_rawq.with_columns([
@@ -1955,17 +2019,18 @@ data_rawq = data_rawq.with_columns([ttm4('niq', data_rawq).alias('niq4')])
 data_rawq = data_rawq.with_columns([
     pl.col('niq4').shift(4).over('permno').alias('niq4_l4'),
     pl.col('dlttq').shift(4).over('permno').alias('dlttq_l4'),
-    pl.col('cogsq4').shift(4).over('permno').alias('cogsq4_l4')
+    pl.col('cogsq4').shift(4).over('permno').alias('cogsq4_l4'),
 ])
+data_rawq = data_rawq.with_columns([ttm4('oancfq', data_rawq).alias('oancfq4')])
 
 data_rawq = data_rawq.with_columns([
     pl.when(pl.col('niq4') > 0).then(1).otherwise(0).alias('p_temp1'),
-    pl.when(pl.col('oancfy') > 0).then(1).otherwise(0).alias('p_temp2'),
+    pl.when(pl.col('oancfq4') > 0).then(1).otherwise(0).alias('p_temp2'),
     pl.when(
         (pl.col('niq4') / pl.col('atq').replace(0, None)) > 
         (pl.col('niq4_l4') / pl.col('atq_l4').replace(0, None))
     ).then(1).otherwise(0).alias('p_temp3'),
-    pl.when(pl.col('oancfy') > pl.col('niq4')).then(1).otherwise(0).alias('p_temp4'),
+    pl.when(pl.col('oancfq4') > pl.col('niq4')).then(1).otherwise(0).alias('p_temp4'),
     pl.when(
         (pl.col('dlttq') / pl.col('atq').replace(0, None)) < 
         (pl.col('dlttq_l4') / pl.col('atq_l4').replace(0, None))
@@ -2018,7 +2083,9 @@ crsp_mom = crsp_mom.sort(['permno', 'date'])
 # No need to add delisting return in the new CIZ CRSP format
 
 
-
+# r_{t+1} = mom_t
+# mom_t = ret_{t-1} + ret_{t-2} + ... + ret_{t-11}
+# @TODO: check windows 11 or 12 ()
 
 def mom(start, end, df):
     """
@@ -2059,13 +2126,14 @@ def chmom(start, end, df):
     
     return result_first_half - result_second_half
 
-
+# (checked): check windows 6 or 12
 crsp_mom = crsp_mom.with_columns([
-    chmom(1, 12, crsp_mom).alias('chmom'),
+    chmom(0, 6, crsp_mom).alias('chmom'),
+    # (mom(0, 6, crsp_mom) - mom(6, 12, crsp_mom)).alias('chmom'), # another method
     mom(12, 60, crsp_mom).alias('mom60m'),
-    mom(1, 12, crsp_mom).alias('mom12m'),
+    mom(0, 12, crsp_mom).alias('mom12m'),
     pl.col('ret').alias('mom1m'),
-    mom(1, 6, crsp_mom).alias('mom6m'),
+    mom(0, 6, crsp_mom).alias('mom6m'),
     mom(12, 36, crsp_mom).alias('mom36m'),
     pl.col('ret').shift(11).over('permno').alias('seas1a'),
     pl.col('vol').shift(1).over('permno').alias('vol_l1'),
@@ -2096,7 +2164,6 @@ crsp_mom = crsp_mom.with_columns([
 
 # 2026-02-11 updates: Add size group classification
 # NYSE monthly size cutoffs and size group classification
-# @TODO(fixed): shrcd前面控制了，此处可以省略
 nyse_cutoffs = (crsp_mom
     .filter(
         (pl.col('primaryexch') == 'N') &
@@ -2161,7 +2228,7 @@ data_rawa = data_rawa.sort(['permno', 'jdate'])
 data_rawa = data_rawa.with_columns([
     pl.col('datadate').forward_fill().over('permno') # 分子相同（季度），分母不同（月度），@TODO: double check
 ])
-# @TODO(fixed): check-处理pandas才加入的datadate1和permno1，polars不需要，可以直接用datadate和permno
+# (fixed): check-处理pandas才加入的datadate1和permno1，polars不需要，可以直接用datadate和permno
 # data_rawa = data_rawa.with_columns([
 #     pl.col('permno').alias('permno1'),
 #     pl.col('datadate').alias('datadate1')
@@ -2169,7 +2236,7 @@ data_rawa = data_rawa.with_columns([
 data_rawa = data_rawa.with_columns([
     pl.all().forward_fill().over(['permno', 'datadate'])
 ])
-# @TODO(fixed): check是否重复筛选
+# (fixed): check是否重复筛选
 # data_rawa = data_rawa.filter(
 #     (pl.col('primaryexch').is_in(['N', 'A', 'Q'])) &
 #     (pl.col('conditionaltype') == 'RW') &
@@ -2183,7 +2250,7 @@ data_rawq = data_rawq.sort(['permno', 'jdate'])
 data_rawq = data_rawq.with_columns([
     pl.col('datadate').forward_fill().over('permno')
 ])
-# @TODO(fixed): check-处理pandas才加入的datadate1和permno1，polars不需要，可以直接用datadate和permno
+# (fixed): check-处理pandas才加入的datadate1和permno1，polars不需要，可以直接用datadate和permno
 # data_rawq = data_rawq.with_columns([
 #     pl.col('permno').alias('permno1'),
 #     pl.col('datadate').alias('datadate1')
@@ -2211,6 +2278,7 @@ data_rawa = data_rawa.with_columns([
 ])
 
 # bm_ia
+# @TODO: 用date还是datadate
 df_temp = data_rawa.group_by(['datadate', 'ffi49']).agg(pl.col('bm').mean().alias('bm_ind'))
 data_rawa = data_rawa.join(df_temp, on=['datadate', 'ffi49'], how='left')
 data_rawa = data_rawa.with_columns([
@@ -2282,6 +2350,7 @@ data_rawa = data_rawa.with_columns([
 ])
 
 # indmom
+# @TODO: mom12/mom6, industry classification
 df_temp = data_rawa.group_by(['date', 'ffi49']).agg(pl.col('mom12m').mean().alias('indmom'))
 data_rawa = data_rawa.join(df_temp, on=['date', 'ffi49'], how='left')
 
@@ -2369,9 +2438,10 @@ data_rawq = data_rawq.with_columns([
     ((pl.col('saleq') - pl.col('saleq_l4')) / pl.col('me').replace(0, None)).alias('rsup')
 ])
 
-# sgrvol
+# (checked): check 0-15/0-16
+# sgrvol: 为什么用rsup计算sgrvol(reference)
 data_rawq = data_rawq.with_columns([
-    chars_std(0, 15, data_rawq, 'rsup').alias('sgrvol')
+    chars_std(0, 16, data_rawq, 'rsup').alias('sgrvol')
 ])
 
 # cashpr
