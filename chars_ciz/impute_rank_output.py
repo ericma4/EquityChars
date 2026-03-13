@@ -32,6 +32,11 @@ from functions import (
     OUTPUT_PATH, ffi49, fillna_ind, fillna_all, standardize
 )
 
+
+def _unique_keep_order(cols: list[str]) -> list[str]:
+    """Deduplicate a list while preserving first-seen order."""
+    return list(dict.fromkeys(cols))
+
 # =====================================================================
 #  Variable lists
 # =====================================================================
@@ -66,7 +71,7 @@ A_ONLY_VARS = [
     'pchsale_pchinvt', 'pchsale_pchrect', 'pchsale_pchxsga', 'pchsaleinv',
     'quick', 'realestate', 'roic', 'salecash', 'salerec', 'saleinv',
     'secured', 'securedind', 'sin', 'tang', 'tb', 'chpmia',
-    'pchcapx', 'chadv', 'grGW', 'pchquick', 'obklg', 'chobklg', 'conv',
+    'pchcapx', 'chadv', 'grGW', 'obklg', 'chobklg', 'conv',
     'chdrc', 'rdbias', 'operprof', 'capxint', 'xadint',
     'm1', 'm2', 'm3', 'm4', 'm5', 'm6',
 ]
@@ -115,14 +120,16 @@ def _reconcile_annual_quarterly(
     q_var_list = ['q_' + v for v in accounting_vars]
 
     # --- annual side: obs + accounting(a_) + a_only + monthly ---
-    a_cols_avail = [c for c in obs_vars + accounting_vars + a_only_vars + m_vars if c in df_a.columns]
+    a_cols = _unique_keep_order(obs_vars + accounting_vars + a_only_vars + m_vars)
+    a_cols_avail = [c for c in a_cols if c in df_a.columns]
     df_a_sel = df_a.select(a_cols_avail)
     # rename accounting vars → a_ prefix
     rename_a = {v: f'a_{v}' for v in accounting_vars if v in df_a_sel.columns}
     df_a_sel = df_a_sel.rename(rename_a)
 
     # --- quarterly side: obs + accounting(q_) + q_only ---
-    q_cols_avail = [c for c in obs_vars + accounting_vars + q_only_vars if c in df_q.columns]
+    q_cols = _unique_keep_order(obs_vars + accounting_vars + q_only_vars)
+    q_cols_avail = [c for c in q_cols if c in df_q.columns]
     df_q_sel = df_q.select(q_cols_avail)
     rename_q = {v: f'q_{v}' for v in accounting_vars if v in df_q_sel.columns}
     df_q_sel = df_q_sel.rename(rename_q)

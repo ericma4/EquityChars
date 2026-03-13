@@ -195,4 +195,5 @@ cython_debug/
 .DS_Store
 .PyCharm
 wrds/
-.parquet
+
+*.parquet

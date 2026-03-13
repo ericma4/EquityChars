@@ -20,6 +20,7 @@ Outputs:
 """
 
 import polars as pl
+from pathlib import Path
 from functions import INPUT_PATH, OUTPUT_PATH
 
 # =====================================================================
@@ -39,6 +40,14 @@ _ROLLING_CHARS_COLS = [
     'rvar_capm', 'rvar_ff3', 'rvar_mean',
     'std_dolvol', 'std_turn', 'zerotrade',
 ]
+
+# CRSP CIZ -> accounting naming convention
+_CRSP_SYNONYMS = {
+    'mthcaldt': 'date',
+    'mthprc': 'prc',
+    'mthret': 'ret',
+    'mthretx': 'retx',
+}
 
 
 def _load_satellite(filename: str, keep_cols: list[str], date_col: str) -> pl.DataFrame:
@@ -72,6 +81,7 @@ def _build_crsp_backfill() -> pl.DataFrame:
     Used to fill missing ret/retx/me in accounting chars that lack CRSP coverage.
     """
     crsp = pl.read_parquet(INPUT_PATH + 'crsp_msf.parquet')
+    crsp = crsp.rename(_CRSP_SYNONYMS, strict=False)
 
     # cast Decimal → Float64
     crsp = crsp.with_columns([
@@ -97,19 +107,24 @@ def _build_crsp_backfill() -> pl.DataFrame:
     crsp = crsp.filter(pl.col('prc').is_not_null())
     crsp = crsp.with_columns([
         (pl.col('prc').abs() * pl.col('shrout')).alias('me'),
-        pl.col('ret').fill_null(0),
-        pl.col('retx').fill_null(0),
+        pl.col('ret').cast(pl.Float64).fill_null(0),
+        pl.col('retx').cast(pl.Float64).fill_null(0),
     ])
 
     # delisting returns
-    dlret = pl.read_parquet(INPUT_PATH + 'crsp_dlret.parquet')
-    dlret = dlret.with_columns([
-        pl.col('permno').cast(pl.Int64),
-        pl.col('dlstdt').cast(pl.Date).dt.month_end().alias('jdate'),
-    ])
-    dlret = dlret.select(['permno', 'jdate', 'dlret'])
+    dlret_path = Path(INPUT_PATH) / 'crsp_dlret.parquet'
+    if dlret_path.exists():
+        dlret = pl.read_parquet(str(dlret_path))
+        dlret = dlret.with_columns([
+            pl.col('permno').cast(pl.Int64),
+            pl.col('dlstdt').cast(pl.Date).dt.month_end().alias('jdate'),
+            pl.col('dlret').cast(pl.Float64),
+        ])
+        dlret = dlret.select(['permno', 'jdate', 'dlret'])
+        crsp = crsp.join(dlret, on=['permno', 'jdate'], how='left')
+    else:
+        crsp = crsp.with_columns(pl.lit(0.0).alias('dlret'))
 
-    crsp = crsp.join(dlret, on=['permno', 'jdate'], how='left')
     crsp = crsp.with_columns([
         pl.col('dlret').fill_null(0),
         ((1 + pl.col('ret')) * (1 + pl.col('dlret')) - 1).alias('retadj'),
@@ -153,10 +168,12 @@ def _backfill_crsp(chars: pl.DataFrame, crsp_fill: pl.DataFrame) -> pl.DataFrame
     chars = chars.join(crsp_fill, on=['permno', 'jdate'], how='left')
     for col_name in ['ret', 'retx', 'retadj', 'me']:
         fill_col = f'{col_name}_fill'
-        if fill_col in chars.columns:
+        if fill_col in chars.columns and col_name in chars.columns:
             chars = chars.with_columns([
                 pl.coalesce([pl.col(col_name), pl.col(fill_col)]).alias(col_name)
             ]).drop(fill_col)
+        elif fill_col in chars.columns:
+            chars = chars.rename({fill_col: col_name})
     # drop rows without return
     chars = chars.filter(
         pl.col('ret').is_not_null() &
