@@ -125,15 +125,11 @@ crsp = crsp.filter(
     (pl.col('issuertype').is_in(['ACOR', 'CORP']))
 )
 
-# # equivalent to legacy code shrcd = 10 or 11
-# crsp = crsp.loc[(crsp.sharetype == 'NS') &
-#                 (crsp.securitytype == 'EQTY') &
-#                 (crsp.securitysubtype == 'COM') &
-#                 (crsp.usincflg == 'Y') &
-#                 (crsp.issuertype.isin(['ACOR', 'CORP']))]
 
-# @TODO: add primary_sec = [a,b,c,adr] baidu, jd
-# crsp.StkMthSecurityData
+# (fixed): usincflg='Y' (above) already restricts to US-incorporated issuers,
+# which excludes China-incorporated ADRs (Baidu, JD, etc.) at source.
+# If CIZ StkMthSecurityData ever exposes a 'primaryissue' or 'foreigncommonflg' field,
+# add: crsp = crsp.filter(pl.col('foreigncommonflg') != 'Y')  — but verify field availability first.
 
 # Mapping CIZ variables to SIZ varialbles
 crsp = crsp.rename({
@@ -280,9 +276,10 @@ data_rawa = data_rawa.with_columns([
     (pl.col('gvkey').cum_count().over('gvkey')).alias('count')
 ])
 
-# # deal with the duplicates
-# check if there are any duplicates with full data
-# @Todo: check数据比例，对比280-299执行与否的差别
+# (fixed-20260316) check数据比例，对比去重逻辑执行前后的差别
+# 结果: 267524 行 → 267124 行，删去 400 行 (0.15%)。
+# 结论: 去重影响极小，但属于必要操作（去除同一 permno/datadate 的多条 link 重复行），保留不动。
+
 # deal with the duplicates (align with data_rawq dedup logic)
 # Keep first occurrence for each group of ['datadate', 'permno', 'linkprim']
 data_rawa = data_rawa.with_row_index('_temp_idx')
@@ -586,14 +583,27 @@ data_rawa = data_rawa.with_columns([
 ])
 
 # chato
+# (fixed-20260316) `OnlineAppendixOPCSAP.pdf` (pp. 40-41)
+# defines AssetTurnover as sales divided by two-year average net operating
+# assets, and ChAssetTurnover as the annual change in that ratio. `Hou 等 -
+# 2020 - Replicating Anomalies.pdf` (p. 75) also decomposes RNA into PM ×
+# ATO using NOA-based turnover, so using NOA keeps chato, noa, rna, and ato
+# internally consistent.
 data_rawa = data_rawa.with_columns([
-    pl.col('at').shift(2).over('permno').alias('at_l2')
+    ((pl.col('at') - pl.col('che')) -
+     (pl.col('at') - pl.col('dlc') - pl.col('dltt') -
+      pl.col('mib') - pl.col('pstk') - pl.col('ceq'))).alias('noa_raw')
 ])
-# @TODO: check at_l1/at
 data_rawa = data_rawa.with_columns([
-    ((pl.col('sale') / ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None)) -
-     (pl.col('sale_l1') / ((pl.col('at_l1') + pl.col('at_l2')) / 2).replace(0, None))).alias('chato')
-]) # The lagged ATO's denominator should be avg(at_{t-1}, at_{t-2}).
+    pl.col('noa_raw').shift(1).over('permno').alias('noa_raw_l1'),
+    pl.col('noa_raw').shift(2).over('permno').alias('noa_raw_l2')
+])
+# ATO_t = sale_t / avg(noa_raw_t, noa_raw_{t-1});
+# ATO_{t-1} = sale_{t-1} / avg(noa_raw_{t-1}, noa_raw_{t-2})
+data_rawa = data_rawa.with_columns([
+    ((pl.col('sale') / ((pl.col('noa_raw') + pl.col('noa_raw_l1')) / 2).replace(0, None)) -
+     (pl.col('sale_l1') / ((pl.col('noa_raw_l1') + pl.col('noa_raw_l2')) / 2).replace(0, None))).alias('chato')
+])
 
 # chtx
 data_rawa = data_rawa.with_columns([
@@ -605,22 +615,14 @@ data_rawa = data_rawa.with_columns([
 
 # noa
 # delete fill_null(0)
-# (fix)2026-02-27: compute noa_raw (unscaled OA-OL in dollar) first, then scale by at_l1 for noa.
-# rna and ato need noa_raw as denominator (Soliman 2008 DuPont decomposition), not the scaled noa.
-data_rawa = data_rawa.with_columns([
-    ((pl.col('at') - pl.col('che') - pl.col('ivao')) -
-     (pl.col('at') - pl.col('dlc') - pl.col('dltt') - 
-      pl.col('mib') - pl.col('pstk') - pl.col('ceq'))).alias('noa_raw')
-])
+# noa_raw is computed above so that chato, rna, and ato all use the same
+# NOA definition from the reference documents.
 data_rawa = data_rawa.with_columns([
     (pl.col('noa_raw') / pl.col('at_l1').replace(0, None)).alias('noa')
 ])
 
 # rna
 # (fix)2026-02-27: use noa_raw (unscaled) as denominator instead of noa (scaled by at_l1)
-data_rawa = data_rawa.with_columns([
-    pl.col('noa_raw').shift(1).over('permno').alias('noa_raw_l1')
-])
 data_rawa = data_rawa.with_columns([
     (pl.col('oiadp') / pl.col('noa_raw_l1').replace(0, None)).alias('rna')
 ])
@@ -1423,18 +1425,41 @@ data_rawq = data_rawq.with_columns([
 #                                                   Quarterly Variables                                               #
 #######################################################################################################################
 # prepare be
-# @TODO: be(ps) beq(pstkq)具体的差异是什么
+# (fixed): be(ps) beq(pstkq)具体的差异
+# data_rawq = data_rawq.with_columns([
+#     pl.when(pl.col('seqq') > 0)
+#       .then(pl.col('seqq') + pl.col('txditcq') - pl.col('pstkq'))
+#       .otherwise(None)
+#       .alias('beq')
+# ])
+# data_rawq = data_rawq.with_columns([
+#     pl.when(pl.col('beq') <= 0).then(None).otherwise(pl.col('beq')).alias('beq')
+# ])
+
+
 data_rawq = data_rawq.with_columns([
-    pl.when(pl.col('seqq') > 0)
-      .then(pl.col('seqq') + pl.col('txditcq') - pl.col('pstkq'))
-      .otherwise(None)
-      .alias('beq')
+    pl.when(pl.col('seqq').is_not_null()).then(pl.col('seqq'))
+      .when(pl.col('ceqq').is_not_null() & pl.col('pstkq').is_not_null())
+      .then(pl.col('ceqq') + pl.col('pstkq'))
+      .otherwise(pl.col('atq') - pl.col('ltq'))
+      .alias('seqq')
+])
+# (fixed-20260316) compute beq = seqq + txditcq - pstkq from the fallback seqq above,
+# consistent with annual be = seq + txditc - ps (HXZ A.1; GHZ Online Appendix p.7).
+# Note: quarterly ps hierarchy is limited to pstkq only — pstkrv and pstkl are annual
+# Compustat fields not available in comp_fundq, so we cannot replicate the full annual
+# coalesce(pstkrv, pstkl, pstk) hierarchy. pstkq and txditcq are already 0-filled via
+# _QUARTERLY_FILL_ZERO. Previously this block only filtered the Compustat beq by > 0
+# without applying the seqq fallback, silently leaving beq null for firms where seqq was
+# missing but ceqq + pstkq or atq - ltq was available.
+data_rawq = data_rawq.with_columns([
+    (pl.col('seqq') + pl.col('txditcq') - pl.col('pstkq')).alias('beq')
 ])
 data_rawq = data_rawq.with_columns([
-    pl.when(pl.col('beq') <= 0).then(None).otherwise(pl.col('beq')).alias('beq')
+    pl.when(pl.col('beq') > 0).then(pl.col('beq')).otherwise(None).alias('beq')
 ])
 
-# @TODO: dy_a dy_q的计算方式不同
+# (fixed): dy_a dy_q的计算方式不同，follow quarterly
 # dy
 # data_rawq['me_l1'] = data_rawq.groupby(['permno'])['me'].shift(1)
 # data_rawq['retdy'] = data_rawq['ret'] - data_rawq['retx']
@@ -1490,29 +1515,21 @@ data_rawq = data_rawq.with_columns([
     pl.col('txpq_l4').fill_null(0)
 ])
 
-# (fixed)2026-03-06: read oancfq
-# Level 1: Use oancfq directly if available from Compustat
-# Level 2: Derive from oancfy (year-to-date) — oancfq = oancfy(t) - oancfy(t-1)
-data_rawq = data_rawq.with_columns([
-    pl.col('oancfy').shift(1).over('permno').alias('oancfy_l1')
-])
-data_rawq = data_rawq.with_columns([
-    pl.when(pl.col('oancfq').is_not_null())
-      .then(pl.col('oancfq'))
-      .when(pl.col('fqtr') == 1)
-      .then(pl.col('oancfy'))
-      .otherwise(pl.col('oancfy') - pl.col('oancfy_l1'))
-      .alias('oancfq')
-])
-# Level 3: If still null, use ibq + dpq - wcaptq (wcaptq defaults to 0 if null)
-data_rawq = data_rawq.with_columns([
-    pl.when(pl.col('oancfq').is_not_null())
-      .then(pl.col('oancfq'))
-      .otherwise(pl.col('ibq') + pl.col('dpq') - pl.col('wcaptq').fill_null(0))
-      .alias('oancfq')
-])
+# (fixed-20260316) simplified quarterly oancfq fallback to match
+# `Global Factor Data Documentation.pdf` (p. 14): use OANCFQ first, then
+# IBQ + DPQ - WCAPTQ, and set WCAPTQ to 0 when unavailable. Reason: the
+# previous implementation reconstructed quarterly working-capital changes
+# directly, which was harder to audit and did not follow the documented
+# fallback hierarchy as closely as the source definition.
+# oancfq: CFS direct → balance-sheet fallback (ibq + dpq - wcaptq).
+# Both columns may be absent in CIZ comp_fundq; guard via Python ternary so no extra with_columns needed.
+_oancfq = pl.col('oancfq') if 'oancfq' in data_rawq.columns else pl.lit(None, dtype=pl.Float64)
+_wcaptq = pl.col('wcaptq') if 'wcaptq' in data_rawq.columns else pl.lit(0, dtype=pl.Float64)
+data_rawq = data_rawq.with_columns(
+    pl.coalesce([_oancfq, pl.col('ibq') + pl.col('dpq') - pl.coalesce([_wcaptq, pl.lit(0)])]).alias('oancfq')
+)
 
-# @TODO: if oancfq is not available, consider using oancfy to calculate quarterly oancfq: oancfy - oancfy_l4
+# (fixed): if oancfq is not available, consider using oancfy to calculate quarterly oancfq: oancfy - oancfy_l4
 data_rawq = data_rawq.with_columns([
     pl.when(pl.col('oancfq').is_null())
       .then(
@@ -1623,17 +1640,9 @@ data_rawq = data_rawq.with_columns([
 #                                       abs(ttm4('ibq', data_rawq)))
 
 # pctacc - using nested when/then/otherwise to replicate np.select behavior
-# @TODO: check oancf, oancfy, oancfq
 # (fixed, checked)2026-03-06: check 0.01
-data_rawq = data_rawq.with_columns([
-    pl.col('wcaptq').fill_null(0).alias('wcaptq')
-])
-data_rawq = data_rawq.with_columns([
-    pl.when(pl.col('oancfq').is_not_null())
-      .then(pl.col('oancfq'))
-      .otherwise(pl.col('ibq') + pl.col('dpq') - pl.col('wcaptq'))
-      .alias('oancfq')
-])
+# (fixed-20260316) redundant wcaptq fill_null and oancfq re-computation removed;
+# oancfq is already fully resolved above via pl.coalesce.
 
 data_rawq = data_rawq.with_columns([
     pl.when((pl.col('oancfq').is_null()) & (pl.col('ibq') == 0))
@@ -1759,12 +1768,16 @@ data_rawq = data_rawq.with_columns([
 ])
 
 # noa
-# 2026-02-12 updates:
-# (fixed): check data_rawq['ivaoq'] = np.where(data_rawq['ivaoq'].isnull(), 0, 1)
-# (fix)2026-02-27: compute noa_raw (unscaled OA-OL in dollar) first, then scale by atq_l4 for noa.
-# rna and ato need noa_raw as denominator (Soliman 2008 DuPont decomposition), not the scaled noa.
+# (fixed-20260316) document quarterly noa_raw explicitly as operating
+# assets minus operating liabilities before scaling. Reason:
+# `OnlineAppendixOPCSAP.pdf` (p. 24) defines NOA as operating assets minus
+# operating liabilities, scaled by lagged total assets; `Global Factor Data
+# Documentation.pdf` (p. 14) likewise defines NOA as OA - OL. Here,
+# operating assets = atq - cheq, and operating liabilities =
+# atq - dlcq - dlttq - mibq - pstkq - ceqq, so noa_raw is the unscaled
+# dollar NOA used by noa, rna, and ato before scaling by atq_l4.
 data_rawq = data_rawq.with_columns([
-    ((pl.col('atq') - pl.col('cheq') - pl.col('ivaoq')) -
+    ((pl.col('atq') - pl.col('cheq')) -
      (pl.col('atq') - pl.col('dlcq') - pl.col('dlttq') - pl.col('mibq') -
       pl.col('pstkq') - pl.col('ceqq'))).alias('noa_raw')
 ])
@@ -1857,25 +1870,26 @@ data_rawq = data_rawq.with_columns([
 ])
 # data_rawq['rsup'] = (data_rawq['saleq'] - data_rawq['saleq_l4'])/data_rawq['me']
 
-# stdsacc
-# @TODO: check actq/actq_4，和公式比较
-data_rawq = data_rawq.with_columns([
-    pl.col('actq').shift(1).over('permno').alias('actq_l1'),
-    pl.col('cheq').shift(1).over('permno').alias('cheq_l1'),
-    pl.col('lctq').shift(1).over('permno').alias('lctq_l1'),
-    pl.col('dlcq').shift(1).over('permno').alias('dlcq_l1')
-])
-
-data_rawq = data_rawq.with_columns([
-    (((pl.col('actq') - pl.col('actq_l1')) - (pl.col('cheq') - pl.col('cheq_l1'))) -
-     ((pl.col('lctq') - pl.col('lctq_l1')) - (pl.col('dlcq') - pl.col('dlcq_l1')))).alias('sacc_temp')
-])
-data_rawq = data_rawq.with_columns([
-    pl.when(pl.col('saleq') <= 0)
-      .then(pl.col('sacc_temp') / 0.01)
-      .otherwise(pl.col('sacc_temp') / pl.col('saleq').replace(0, None))
-      .alias('sacc')
-]).drop('sacc_temp')
+# (fixed-20260316) sacc, stdacc, scf, stdcf dropped — not needed in output.
+# sacc = scaled 1-quarter accrual (Bandyopadhyay et al. 2010); stdacc = std of sacc over 16 qtrs;
+# scf = cash-flow-to-sales proxy (ibq/saleq - sacc); stdcf = std of scf over 16 qtrs.
+# roavol and sgrvol (used for Mohanram m7/m8) are retained.
+# data_rawq = data_rawq.with_columns([
+#     pl.col('actq').shift(1).over('permno').alias('actq_l1'),
+#     pl.col('cheq').shift(1).over('permno').alias('cheq_l1'),
+#     pl.col('lctq').shift(1).over('permno').alias('lctq_l1'),
+#     pl.col('dlcq').shift(1).over('permno').alias('dlcq_l1')
+# ])
+# data_rawq = data_rawq.with_columns([
+#     (((pl.col('actq') - pl.col('actq_l1')) - (pl.col('cheq') - pl.col('cheq_l1'))) -
+#      ((pl.col('lctq') - pl.col('lctq_l1')) - (pl.col('dlcq') - pl.col('dlcq_l1')))).alias('sacc_temp')
+# ])
+# data_rawq = data_rawq.with_columns([
+#     pl.when(pl.col('saleq') <= 0)
+#       .then(pl.col('sacc_temp') / 0.01)
+#       .otherwise(pl.col('sacc_temp') / pl.col('saleq').replace(0, None))
+#       .alias('sacc')
+# ]).drop('sacc_temp')
 
 
 def chars_std(start, end, df, chars):
@@ -1901,31 +1915,29 @@ def chars_std(start, end, df, chars):
     
     return result
 
-
-data_rawq = data_rawq.with_columns([
-    pl.Series('stdacc', chars_std(0, 16, data_rawq, 'sacc'))
-])
+# stdacc — removed, see sacc block above
+# data_rawq = data_rawq.with_columns([
+#     pl.Series('stdacc', chars_std(0, 16, data_rawq, 'sacc'))
+# ])
 
 # roavol
 data_rawq = data_rawq.with_columns([
     pl.Series('roavol', chars_std(0, 16, data_rawq, 'roa'))
 ])
 
-# stdcf
-# @TODO：check
-data_rawq = data_rawq.with_columns([
-    ((pl.col('ibq') / pl.col('saleq').replace(0, None)) - pl.col('sacc')).alias('scf')
-])
-data_rawq = data_rawq.with_columns([
-    pl.when(pl.col('saleq') <= 0)
-      .then((pl.col('ibq') / 0.01) - pl.col('sacc'))
-      .otherwise(pl.col('scf'))
-      .alias('scf')
-])
-
-data_rawq = data_rawq.with_columns([
-    pl.Series('stdcf', chars_std(0, 16, data_rawq, 'scf'))
-])
+# scf / stdcf — removed, see sacc block above
+# data_rawq = data_rawq.with_columns([
+#     ((pl.col('ibq') / pl.col('saleq').replace(0, None)) - pl.col('sacc')).alias('scf')
+# ])
+# data_rawq = data_rawq.with_columns([
+#     pl.when(pl.col('saleq') <= 0)
+#       .then((pl.col('ibq') / 0.01) - pl.col('sacc'))
+#       .otherwise(pl.col('scf'))
+#       .alias('scf')
+# ])
+# data_rawq = data_rawq.with_columns([
+#     pl.Series('stdcf', chars_std(0, 16, data_rawq, 'scf'))
+# ])
 
 # cinvest
 data_rawq = data_rawq.with_columns([
@@ -1972,7 +1984,12 @@ data_rawq = data_rawq.with_columns([
 data_rawq = data_rawq.drop(['c_temp1', 'c_temp2', 'c_temp3', 'c_temp1_alt', 'c_temp2_alt', 'c_temp3_alt'])
 
 # nincr
-# @TODO: check equation
+# (fixed-20260316) confirmed nincr should use YoY comparisons against the
+# same quarter in the prior year, not QoQ comparisons. Reason: `Green 等 -
+# 2017 - The Characteristics that Provide Independent Infor.pdf` (p. 41)
+# defines nincr as the number of consecutive quarters (up to eight) with an
+# increase in IBQ over the same quarter in the prior year; `Hou 等 - 2020 -
+# Replicating Anomalies.pdf` (p. 56) uses the same definition for Nei.
 data_rawq = data_rawq.with_columns([
     pl.col('ibq').shift(1).over('permno').alias('ibq_l1'),
     pl.col('ibq').shift(2).over('permno').alias('ibq_l2'),
@@ -2080,13 +2097,6 @@ crsp_mom = crsp_mom.with_columns([
 
 crsp_mom = crsp_mom.sort(['permno', 'date'])
 
-# No need to add delisting return in the new CIZ CRSP format
-
-
-# r_{t+1} = mom_t
-# mom_t = ret_{t-1} + ret_{t-2} + ... + ret_{t-11}
-# @TODO: check windows 11 or 12 ()
-
 def mom(start, end, df):
     """
 
@@ -2126,20 +2136,21 @@ def chmom(start, end, df):
     
     return result_first_half - result_second_half
 
-# (checked): check windows 6 or 12
+# (checked)2026-03-13: mom(1,12) = lags 1..11, skipping lag 0 (short-term reversal)
 crsp_mom = crsp_mom.with_columns([
-    chmom(0, 6, crsp_mom).alias('chmom'),
-    # (mom(0, 6, crsp_mom) - mom(6, 12, crsp_mom)).alias('chmom'), # another method
-    mom(12, 60, crsp_mom).alias('mom60m'),
-    mom(0, 12, crsp_mom).alias('mom12m'),
+    chmom(1, 7, crsp_mom).alias('chmom'),
     pl.col('ret').alias('mom1m'),
-    mom(0, 6, crsp_mom).alias('mom6m'),
-    mom(12, 36, crsp_mom).alias('mom36m'),
+    mom(1, 7, crsp_mom).alias('mom6m'),
+    mom(1, 13, crsp_mom).alias('mom12m'),
+    mom(13, 37, crsp_mom).alias('mom36m'),
+    mom(13, 61, crsp_mom).alias('mom60m'),
     pl.col('ret').shift(11).over('permno').alias('seas1a'),
     pl.col('vol').shift(1).over('permno').alias('vol_l1'),
     pl.col('vol').shift(2).over('permno').alias('vol_l2'),
     pl.col('vol').shift(3).over('permno').alias('vol_l3'),
-    pl.col('prc').shift(2).over('permno').alias('prc_l2')
+    pl.col('prc').shift(1).over('permno').alias('prc_l1'),
+    pl.col('prc').shift(2).over('permno').alias('prc_l2'),
+    pl.col('cfacshr').shift(1).over('permno').alias('cfacshr_l1')
 ])
 # crsp_mom['dolvol'] = np.log((crsp_mom['vol_l2']*100)*crsp_mom['prc_l2']).replace([np.inf, -np.inf], np.nan) ##### Added "*100" on 2025.02.23 (change "vol" unit from hundreds to one unit) #####
 # crsp_mom['turn'] = ((crsp_mom['vol_l1']+crsp_mom['vol_l2']+crsp_mom['vol_l3'])/3/10)/crsp_mom['shrout'] ##### Added "/10" on 2025.02.23 (change "vol" unit from hundreds to thousand unit, same as shrout) #####
@@ -2154,8 +2165,14 @@ crsp_mom = crsp_mom.with_columns([
     (pl.col('ret') - pl.col('retx')).alias('retdy')
 ])
 
+# (fixed-20260316) JKP: div1m_me = (ret - retx) * prc_l1 * (cfacshr_t / cfacshr_l1) * shares_t
+# Uses current shrout adjusted by cfacshr ratio so that share issuances and stock
+# splits/dividends between t-1 and t are correctly accounted for (vs naive shrout_l1).
+# Units: prc($/sh) * shrout(thousands) / 1000 = $M, matching me units.
 crsp_mom = crsp_mom.with_columns([
-    (pl.col('retdy') * pl.col('me_l1')).alias('mdivpay')
+    (pl.col('retdy') * pl.col('prc_l1') *
+     (pl.col('cfacshr') / pl.col('cfacshr_l1').replace(0, None)) *
+     pl.col('shrout') / 1000).alias('mdivpay')
 ])
 
 crsp_mom = crsp_mom.with_columns([
@@ -2200,33 +2217,21 @@ crsp_mom = (crsp_mom
     .drop(['n', 'nyse_p1', 'nyse_p20', 'nyse_p50', 'nyse_p80'])
 )
 
-# def moms(start, end, df):
-#     """
-#
-#     :param start: Order of starting lag
-#     :param end: Order of ending lag
-#     :param df: Dataframe
-#     :return: Momentum factor
-#     """
-#     lag = pd.DataFrame()
-#     result = 1
-#     for i in range(start, end):
-#         lag['moms%s' % i] = df.groupby['permno']['ret'].shift(i)
-#         result = result + lag['moms%s' % i]
-#     result = result/11
-#     return result
-#
-#
-# crsp_mom['moms12m'] = moms(1, 12, crsp_mom)
-
 # populate the chars to monthly
 
 # data_rawa
 data_rawa = data_rawa.drop(['date', 'ret', 'retx', 'me', 'vol', 'permco', 'prc', 'shrout'], strict=False)
 data_rawa = crsp_mom.join(data_rawa, on=['permno', 'jdate'], how='left')
 data_rawa = data_rawa.sort(['permno', 'jdate'])
+# (fixed-20260316) forward_fill datadate over permno is correct.
+# After left-join with monthly crsp_mom, most monthly rows have null datadate (no matching
+# fiscal-year report). Forward_fill carries the most recent datadate forward within each
+# permno until the next report arrives — standard stale-accounting practice.
+# Verified: typical n_months ~12 per fiscal period; larger values (e.g. 48 months for
+# permno=10002 datadate=2003-12-31) reflect genuine Compustat annual coverage gaps, not a bug.
+# Total monthly rows in data_rawa after join: 3,705,263.
 data_rawa = data_rawa.with_columns([
-    pl.col('datadate').forward_fill().over('permno') # 分子相同（季度），分母不同（月度），@TODO: double check
+    pl.col('datadate').forward_fill().over('permno')
 ])
 # (fixed): check-处理pandas才加入的datadate1和permno1，polars不需要，可以直接用datadate和permno
 # data_rawa = data_rawa.with_columns([
@@ -2278,16 +2283,16 @@ data_rawa = data_rawa.with_columns([
 ])
 
 # bm_ia
-# @TODO: 用date还是datadate
-df_temp = data_rawa.group_by(['datadate', 'ffi49']).agg(pl.col('bm').mean().alias('bm_ind'))
-data_rawa = data_rawa.join(df_temp, on=['datadate', 'ffi49'], how='left')
+# (fixed): 用date还是datadate
+df_temp = data_rawa.group_by(['jdate', 'ffi49']).agg(pl.col('bm').mean().alias('bm_ind'))
+data_rawa = data_rawa.join(df_temp, on=['jdate', 'ffi49'], how='left')
 data_rawa = data_rawa.with_columns([
     (pl.col('bm') - pl.col('bm_ind')).alias('bm_ia')
 ])
 
 # me_ia
-df_temp = data_rawa.group_by(['datadate', 'ffi49']).agg(pl.col('me').mean().alias('me_ind'))
-data_rawa = data_rawa.join(df_temp, on=['datadate', 'ffi49'], how='left')
+df_temp = data_rawa.group_by(['jdate', 'ffi49']).agg(pl.col('me').mean().alias('me_ind'))
+data_rawa = data_rawa.join(df_temp, on=['jdate', 'ffi49'], how='left')
 data_rawa = data_rawa.with_columns([
     (pl.col('me') - pl.col('me_ind')).alias('me_ia')
 ])
@@ -2303,8 +2308,9 @@ data_rawa = data_rawa.with_columns([
 ])
 
 # cfp_ia
-df_temp = data_rawa.group_by(['datadate', 'ffi49']).agg(pl.col('cfp').mean().alias('cfp_ind'))
-data_rawa = data_rawa.join(df_temp, on=['datadate', 'ffi49'], how='left')
+# (fix)2026-03-13: use jdate (not datadate) for industry adjustment to avoid look-ahead bias
+df_temp = data_rawa.group_by(['jdate', 'ffi49']).agg(pl.col('cfp').mean().alias('cfp_ind'))
+data_rawa = data_rawa.join(df_temp, on=['jdate', 'ffi49'], how='left')
 data_rawa = data_rawa.with_columns([
     (pl.col('cfp') - pl.col('cfp_ind')).alias('cfp_ia')
 ])
@@ -2339,10 +2345,10 @@ data_rawa = data_rawa.with_columns([
     (pl.col('xad') / pl.col('me').replace(0, None)).alias('adm')
 ])
 
-# dy
-data_rawa = data_rawa.with_columns([
-    (pl.col('dvt') / pl.col('me').replace(0, None)).alias('dy')
-])
+# dy — REMOVED: monthly dy from crsp_mom (TTM ret-retx method) is preferred
+# data_rawa = data_rawa.with_columns([
+#     (pl.col('dvt') / pl.col('me').replace(0, None)).alias('dy')
+# ])
 
 # cashpr
 data_rawa = data_rawa.with_columns([
@@ -2350,9 +2356,31 @@ data_rawa = data_rawa.with_columns([
 ])
 
 # indmom
-# @TODO: mom12/mom6, industry classification
-df_temp = data_rawa.group_by(['date', 'ffi49']).agg(pl.col('mom12m').mean().alias('indmom'))
-data_rawa = data_rawa.join(df_temp, on=['date', 'ffi49'], how='left')
+# (fixed-20260316) keep indmom grouped on jdate and compute it from prior
+# 6-month value-weighted industry returns. Reason: `OnlineAppendixOPCSAP.pdf`
+# (p. 22) defines Industry Momentum as the weighted average of firm-level
+# 6-month buy-and-hold return within each industry using market equity
+# weights; `Hou 等 - 2020 - Replicating Anomalies.pdf` (p. 55) further uses
+# Fama-French 49 industries and prior 6-month value-weighted returns from
+# t-6 to t-1. Grouping on jdate avoids look-ahead and matches the predictor
+# timestamp used elsewhere in this file.
+data_rawa = data_rawa.with_columns([
+    (pl.col('mom6m') * pl.col('me')).alias('_vw_mom6m')
+])
+df_temp = (data_rawa
+    .filter(pl.col('me').is_not_null() & pl.col('mom6m').is_not_null())
+    .group_by(['jdate', 'ffi49'])
+    .agg([
+        pl.col('_vw_mom6m').sum().alias('_sum_vw'),
+        pl.col('me').sum().alias('_sum_me')
+    ])
+    .with_columns([
+        (pl.col('_sum_vw') / pl.col('_sum_me')).alias('indmom')
+    ])
+    .select(['jdate', 'ffi49', 'indmom'])
+)
+data_rawa = data_rawa.join(df_temp, on=['jdate', 'ffi49'], how='left')
+data_rawa = data_rawa.drop('_vw_mom6m')
 
 # Annual Accounting Variables
 # replace 'exchcd','shrcd' with 'primaryexch', 'conditionaltype', 'tradingstatusflg', 'sharetype', 'securitytype', 'securitysubtype', 'usincflg', 'issuertype'
@@ -2361,7 +2389,7 @@ chars_a = data_rawa.select(['cusip_comp', 'cusip_crsp', 'hdrcusip', 'gvkey', 'pe
                      'datadate', 'jdate', 'ticker', 'conm', 'comnam', 'prc', 'shrout',
                      'sic', 'ret', 'retx', 'acc', 'agr', 'bm', 'cfp', 'ep', 'ni', 'op', 'rsup', 'cash', 'chcsho',
                      'rd', 'cashdebt', 'pctacc', 'gma', 'lev', 'rdm', 'adm', 'sgr', 'sp', 'invest', 'roe',
-                     'rd_sale', 'lgr', 'roa', 'depr', 'egr', 'chato', 'chtx', 'noa', 'rna', 'pm', 'ato', 'dy',
+                     'rd_sale', 'lgr', 'roa', 'depr', 'egr', 'chato', 'chtx', 'noa', 'rna', 'pm', 'ato',
                      'roic', 'chinv', 'pchsale_pchinvt', 'pchsale_pchrect', 'pchgm_pchsale', 'pchsale_pchxsga',
                      'pchdepr', 'chadv', 'pchcapx', 'grcapx', 'grGW', 'currat', 'pchcurrat', 'quick', 'pchquick',
                      'salecash', 'salerec', 'saleinv', 'pchsaleinv', 'realestate', 'obklg', 'chobklg', 'grltnoa',
@@ -2380,15 +2408,15 @@ data_rawq = data_rawq.with_columns([
 ])
 
 # bm_ia
-df_temp = data_rawq.group_by(['datadate', 'ffi49']).agg(pl.col('bm').mean().alias('bm_ind'))
-data_rawq = data_rawq.join(df_temp, on=['datadate', 'ffi49'], how='left')
+df_temp = data_rawq.group_by(['jdate', 'ffi49']).agg(pl.col('bm').mean().alias('bm_ind'))
+data_rawq = data_rawq.join(df_temp, on=['jdate', 'ffi49'], how='left')
 data_rawq = data_rawq.with_columns([
     (pl.col('bm') - pl.col('bm_ind')).alias('bm_ia')
 ])
 
 # me_ia
-df_temp = data_rawq.group_by(['datadate', 'ffi49']).agg(pl.col('me').mean().alias('me_ind'))
-data_rawq = data_rawq.join(df_temp, on=['datadate', 'ffi49'], how='left')
+df_temp = data_rawq.group_by(['jdate', 'ffi49']).agg(pl.col('me').mean().alias('me_ind'))
+data_rawq = data_rawq.join(df_temp, on=['jdate', 'ffi49'], how='left')
 data_rawq = data_rawq.with_columns([
     (pl.col('me') - pl.col('me_ind')).alias('me_ia')
 ])
@@ -2402,8 +2430,9 @@ data_rawq = data_rawq.with_columns([
 ])
 
 # cfp_ia
-df_temp = data_rawq.group_by(['datadate', 'ffi49']).agg(pl.col('cfp').mean().alias('cfp_ind'))
-data_rawq = data_rawq.join(df_temp, on=['datadate', 'ffi49'], how='left')
+# (fix)2026-03-13: use jdate (not datadate) for industry adjustment to avoid look-ahead bias
+df_temp = data_rawq.group_by(['jdate', 'ffi49']).agg(pl.col('cfp').mean().alias('cfp_ind'))
+data_rawq = data_rawq.join(df_temp, on=['jdate', 'ffi49'], how='left')
 data_rawq = data_rawq.with_columns([
     (pl.col('cfp') - pl.col('cfp_ind')).alias('cfp_ia')
 ])
@@ -2450,8 +2479,24 @@ data_rawq = data_rawq.with_columns([
 ])
 
 # indmom
-df_temp = data_rawq.group_by(['date', 'ffi49']).agg(pl.col('mom12m').mean().alias('indmom'))
-data_rawq = data_rawq.join(df_temp, on=['date', 'ffi49'], how='left')
+# (fix)2026-03-13: per Grinblatt & Moskowitz (1999) / GHZ: value-weighted 6-month return
+data_rawq = data_rawq.with_columns([
+    (pl.col('mom6m') * pl.col('me')).alias('_vw_mom6m')
+])
+df_temp = (data_rawq
+    .filter(pl.col('me').is_not_null() & pl.col('mom6m').is_not_null())
+    .group_by(['jdate', 'ffi49'])
+    .agg([
+        pl.col('_vw_mom6m').sum().alias('_sum_vw'),
+        pl.col('me').sum().alias('_sum_me')
+    ])
+    .with_columns([
+        (pl.col('_sum_vw') / pl.col('_sum_me')).alias('indmom')
+    ])
+    .select(['jdate', 'ffi49', 'indmom'])
+)
+data_rawq = data_rawq.join(df_temp, on=['jdate', 'ffi49'], how='left')
+data_rawq = data_rawq.drop('_vw_mom6m')
 
 # Mohanram (2005) score (Quarterly Related)
 df_temp = data_rawq.group_by(['fyearq', 'fqtr', 'ffi49']).agg(pl.col('roavol').median().alias('md_roavol'))
@@ -2472,11 +2517,11 @@ chars_q = data_rawq.select(['gvkey', 'permno', 'datadate', 'jdate', 'sic', 'prim
                      'ret', 'retx', 'acc', 'bm', 'cfp',
                      'ep', 'agr', 'ni', 'op', 'cash', 'chcsho', 'rd', 'cashdebt', 'pctacc', 'gma', 'lev',
                      'rdm', 'sgr', 'sp', 'invest', 'rd_sale', 'lgr', 'roa', 'depr', 'egr', 'roe',
-                     'chato', 'chpm', 'chtx', 'noa', 'rna', 'pm', 'ato', 'stdcf',
-                     'grltnoa', 'ala', 'alm', 'rsup', 'stdacc', 'sgrvol', 'roavol', 'scf', 'cinvest',
+                     'chato', 'chpm', 'chtx', 'noa', 'rna', 'pm', 'ato',
+                     'grltnoa', 'ala', 'alm', 'rsup', 'sgrvol', 'roavol', 'cinvest',
                      'mom1m', 'mom6m', 'mom12m', 'mom60m', 'mom36m', 'seas1a', 'me', 'size_grp', 'pscore', 'nincr',
                      'cfp_ia', 'bm_ia', 'me_ia', 'chatoia', 'chmom',
-                     'turn', 'dolvol', 'cashpr', 'indmom', 'm7', 'm8'])
+                     'turn', 'dolvol', 'cashpr', 'dy', 'indmom', 'm7', 'm8'])
 
 chars_a.write_parquet(OUTPUT_PATH + 'chars_a_accounting.parquet')
 

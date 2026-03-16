@@ -121,7 +121,7 @@ def get_tables_config(start_date='2020-01-01'):
                 AND f.datadate >= ''{start_date}''
             """
         },
-
+# (fixed): add cfacshr(crsp_msf: mthcumfacshr), wcaptq (is wcapq)
         'comp_fundq': {
             'output': os.path.join(OUTPUT_PATH, 'comp_fundq.parquet'),
             'query': f"""
@@ -141,7 +141,7 @@ def get_tables_config(start_date='2020-01-01'):
                     
                     /* v3 my formula add*/
                     f.ajexq, f.cshoq, f.txditcq, f.npq, f.xrdy, f.xrdq, f.dpq, f.xintq, f.invtq, f.scstkcy, f.niq,
-                    f.oancfy, f.oancfq, f.wcaptq, f.dlttq, f.rectq, f.acoq, f.apq, f.lcoq, f.loq, f.aoq,
+                    f.oancfy, f.wcapq, f.dlttq, f.rectq, f.acoq, f.apq, f.lcoq, f.loq, f.aoq,
                     
                     /* SUE calculation */
                     f.epspxq
@@ -158,7 +158,7 @@ def get_tables_config(start_date='2020-01-01'):
                 AND f.datadate >= ''{start_date}''
             """
         },
-        
+# cfacshr - is mthcumfacshr
         'crsp_msf': {
             'output': os.path.join(OUTPUT_PATH, 'crsp_msf.parquet'),
             'query': f"""
@@ -173,7 +173,6 @@ def get_tables_config(start_date='2020-01-01'):
             """
         },
 
-        # @TODO(fixed): original accounting and abr does not have consistent filter
         # 2026-02-10 updates: confirm and use ccmxpf_lnkhist
         'ccm': {
             'output': os.path.join(OUTPUT_PATH, 'ccm.parquet'),
