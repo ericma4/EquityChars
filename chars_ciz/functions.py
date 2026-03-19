@@ -102,64 +102,64 @@ def ffi49():
               sic.is_between(8100, 8199) | sic.is_between(8200, 8299) | sic.is_between(8300, 8399) | 
               sic.is_between(8400, 8499) | sic.is_between(8600, 8699) | sic.is_between(8800, 8899) | 
               sic.is_between(7510, 7515)).then(33)
-        .when(sic.is_between(2750, 2759) | (sic == 3993) | (sic == 7218) | (sic == 7300) | 
-              sic.is_between(7310, 7319) | sic.is_between(7320, 7329) | sic.is_between(7330, 7339) | 
-              sic.is_between(7340, 7342) | (sic == 7349) | sic.is_between(7350, 7353) | (sic == 7359) | 
-              sic.is_between(7360, 7369) | (sic == 7374) | (sic == 7376) | (sic == 7377) | (sic == 7378) | 
-              (sic == 7379) | (sic == 7380) | sic.is_between(7381, 7385) | sic.is_between(7389, 7394) | 
-              (sic == 7396) | (sic == 7397) | sic.is_between(7399, 7399) | (sic == 7519) | (sic == 8700) | 
-              sic.is_between(8710, 8713) | sic.is_between(8720, 8721) | sic.is_between(8730, 8734) | 
-              sic.is_between(8740, 8748) | sic.is_between(8900, 8911) | sic.is_between(8920, 8999) | 
+        .when(sic.is_between(2750, 2759) | (sic == 3993) | (sic == 7218) | (sic == 7300) |
+              sic.is_between(7310, 7319) | sic.is_between(7320, 7329) | sic.is_between(7330, 7339) |
+              sic.is_between(7340, 7342) | (sic == 7349) | sic.is_between(7350, 7353) | (sic == 7359) |
+              sic.is_between(7360, 7369) | (sic == 7374) | (sic == 7376) | (sic == 7377) | (sic == 7378) |
+              (sic == 7379) | (sic == 7380) | sic.is_between(7381, 7385) | sic.is_between(7389, 7394) |
+              (sic == 7396) | (sic == 7397) | sic.is_between(7399, 7399) | (sic == 7519) | (sic == 8700) |
+              sic.is_between(8710, 8713) | sic.is_between(8720, 8721) | sic.is_between(8730, 8734) |
+              sic.is_between(8740, 8748) | sic.is_between(8900, 8911) | sic.is_between(8920, 8999) |
               sic.is_between(4220, 4229)).then(34)
         .when(sic.is_between(3570, 3579) | (sic == 3680) | sic.is_between(3681, 3689) | (sic == 3695)).then(35)
         .when(sic.is_between(7370, 7372) | (sic == 7375) | (sic == 7373)).then(36)
         .when((sic == 3622) | sic.is_between(3661, 3666) | sic.is_between(3669, 3679) | (sic == 3810) | (sic == 3812)).then(37)
         .when((sic == 3811) | (sic == 3820) | sic.is_between(3821, 3827) | sic.is_between(3829, 3839)).then(38)
-        .when(sic.is_between(2520, 2549) | sic.is_between(2600, 2639) | sic.is_between(2670, 2699) | 
+        .when(sic.is_between(2520, 2549) | sic.is_between(2600, 2639) | sic.is_between(2670, 2699) |
               sic.is_between(2760, 2761) | sic.is_between(3950, 3955)).then(39)
-        .when(sic.is_between(2440, 2449) | sic.is_between(2640, 2659) | sic.is_between(3220, 3221) | 
+        .when(sic.is_between(2440, 2449) | sic.is_between(2640, 2659) | sic.is_between(3220, 3221) |
               sic.is_between(3410, 3412)).then(40)
-        .when(sic.is_between(4000, 4013) | sic.is_between(4040, 4049) | (sic == 4100) | sic.is_between(4110, 4121) | 
-              sic.is_between(4130, 4131) | sic.is_between(4140, 4142) | sic.is_between(4150, 4151) | 
-              sic.is_between(4170, 4173) | sic.is_between(4190, 4199) | (sic == 4200) | sic.is_between(4210, 4219) | 
-              sic.is_between(4230, 4231) | sic.is_between(4240, 4249) | sic.is_between(4400, 4499) | 
-              sic.is_between(4500, 4599) | sic.is_between(4600, 4699) | (sic == 4700) | sic.is_between(4710, 4712) | 
-              sic.is_between(4720, 4729) | sic.is_between(4730, 4739) | sic.is_between(4740, 4749) | 
+        .when(sic.is_between(4000, 4013) | sic.is_between(4040, 4049) | (sic == 4100) | sic.is_between(4110, 4121) |
+              sic.is_between(4130, 4131) | sic.is_between(4140, 4142) | sic.is_between(4150, 4151) |
+              sic.is_between(4170, 4173) | sic.is_between(4190, 4199) | (sic == 4200) | sic.is_between(4210, 4219) |
+              sic.is_between(4230, 4231) | sic.is_between(4240, 4249) | sic.is_between(4400, 4499) |
+              sic.is_between(4500, 4599) | sic.is_between(4600, 4699) | (sic == 4700) | sic.is_between(4710, 4712) |
+              sic.is_between(4720, 4729) | sic.is_between(4730, 4739) | sic.is_between(4740, 4749) |
               (sic == 4780) | (sic == 4782) | (sic == 4783) | (sic == 4784) | (sic == 4785) | sic.is_between(4789, 4789)).then(41)
-        .when((sic == 5000) | sic.is_between(5010, 5015) | sic.is_between(5020, 5023) | sic.is_between(5030, 5039) | 
-              sic.is_between(5040, 5049) | sic.is_between(5050, 5059) | (sic == 5060) | (sic == 5063) | 
-              (sic == 5064) | (sic == 5065) | sic.is_between(5070, 5078) | (sic == 5080) | sic.is_between(5081, 5088) | 
-              (sic == 5090) | sic.is_between(5091, 5094) | (sic == 5099) | (sic == 5100) | sic.is_between(5110, 5113) | 
-              sic.is_between(5120, 5122) | sic.is_between(5130, 5139) | sic.is_between(5140, 5149) | 
-              sic.is_between(5150, 5159) | sic.is_between(5160, 5169) | sic.is_between(5170, 5172) | 
+        .when((sic == 5000) | sic.is_between(5010, 5015) | sic.is_between(5020, 5023) | sic.is_between(5030, 5039) |
+              sic.is_between(5040, 5049) | sic.is_between(5050, 5059) | (sic == 5060) | (sic == 5063) |
+              (sic == 5064) | (sic == 5065) | sic.is_between(5070, 5078) | (sic == 5080) | sic.is_between(5081, 5088) |
+              (sic == 5090) | sic.is_between(5091, 5094) | (sic == 5099) | (sic == 5100) | sic.is_between(5110, 5113) |
+              sic.is_between(5120, 5122) | sic.is_between(5130, 5139) | sic.is_between(5140, 5149) |
+              sic.is_between(5150, 5159) | sic.is_between(5160, 5169) | sic.is_between(5170, 5172) |
               sic.is_between(5180, 5182) | sic.is_between(5190, 5199)).then(42)
-        .when((sic == 5200) | sic.is_between(5210, 5219) | sic.is_between(5220, 5229) | sic.is_between(5230, 5231) | 
-              sic.is_between(5250, 5251) | sic.is_between(5260, 5261) | sic.is_between(5270, 5271) | 
-              (sic == 5300) | sic.is_between(5310, 5311) | (sic == 5320) | sic.is_between(5330, 5331) | 
-              (sic == 5334) | sic.is_between(5340, 5349) | sic.is_between(5390, 5400) | sic.is_between(5410, 5412) | 
-              sic.is_between(5420, 5429) | sic.is_between(5430, 5439) | sic.is_between(5440, 5449) | 
-              sic.is_between(5450, 5459) | sic.is_between(5460, 5469) | sic.is_between(5490, 5500) | 
-              sic.is_between(5510, 5529) | sic.is_between(5530, 5539) | sic.is_between(5540, 5549) | 
-              sic.is_between(5550, 5559) | sic.is_between(5560, 5569) | sic.is_between(5570, 5579) | 
-              sic.is_between(5590, 5599) | sic.is_between(5600, 5700) | sic.is_between(5710, 5722) | 
-              sic.is_between(5730, 5736) | sic.is_between(5750, 5799) | (sic == 5900) | sic.is_between(5910, 5912) | 
-              sic.is_between(5920, 5929) | sic.is_between(5930, 5932) | (sic == 5940) | sic.is_between(5941, 5949) | 
-              sic.is_between(5950, 5959) | sic.is_between(5960, 5969) | sic.is_between(5970, 5979) | 
-              sic.is_between(5980, 5990) | (sic == 5992) | (sic == 5993) | (sic == 5994) | (sic == 5995) | 
+        .when((sic == 5200) | sic.is_between(5210, 5219) | sic.is_between(5220, 5229) | sic.is_between(5230, 5231) |
+              sic.is_between(5250, 5251) | sic.is_between(5260, 5261) | sic.is_between(5270, 5271) |
+              (sic == 5300) | sic.is_between(5310, 5311) | (sic == 5320) | sic.is_between(5330, 5331) |
+              (sic == 5334) | sic.is_between(5340, 5349) | sic.is_between(5390, 5400) | sic.is_between(5410, 5412) |
+              sic.is_between(5420, 5429) | sic.is_between(5430, 5439) | sic.is_between(5440, 5449) |
+              sic.is_between(5450, 5459) | sic.is_between(5460, 5469) | sic.is_between(5490, 5500) |
+              sic.is_between(5510, 5529) | sic.is_between(5530, 5539) | sic.is_between(5540, 5549) |
+              sic.is_between(5550, 5559) | sic.is_between(5560, 5569) | sic.is_between(5570, 5579) |
+              sic.is_between(5590, 5599) | sic.is_between(5600, 5700) | sic.is_between(5710, 5722) |
+              sic.is_between(5730, 5736) | sic.is_between(5750, 5799) | (sic == 5900) | sic.is_between(5910, 5912) |
+              sic.is_between(5920, 5929) | sic.is_between(5930, 5932) | (sic == 5940) | sic.is_between(5941, 5949) |
+              sic.is_between(5950, 5959) | sic.is_between(5960, 5969) | sic.is_between(5970, 5979) |
+              sic.is_between(5980, 5990) | (sic == 5992) | (sic == 5993) | (sic == 5994) | (sic == 5995) |
               sic.is_between(5999, 5999)).then(43)
-        .when(sic.is_between(5800, 5819) | sic.is_between(5820, 5829) | sic.is_between(5890, 5899) | 
+        .when(sic.is_between(5800, 5819) | sic.is_between(5820, 5829) | sic.is_between(5890, 5899) |
               (sic == 7000) | sic.is_between(7010, 7019) | sic.is_between(7040, 7049) | (sic == 7213)).then(44)
-        .when((sic == 6000) | sic.is_between(6010, 6036) | sic.is_between(6040, 6062) | sic.is_between(6080, 6082) | 
-              sic.is_between(6090, 6100) | sic.is_between(6110, 6113) | sic.is_between(6120, 6179) | 
+        .when((sic == 6000) | sic.is_between(6010, 6036) | sic.is_between(6040, 6062) | sic.is_between(6080, 6082) |
+              sic.is_between(6090, 6100) | sic.is_between(6110, 6113) | sic.is_between(6120, 6179) |
               sic.is_between(6190, 6199)).then(45)
-        .when((sic == 6300) | sic.is_between(6310, 6331) | sic.is_between(6350, 6351) | sic.is_between(6360, 6361) | 
+        .when((sic == 6300) | sic.is_between(6310, 6331) | sic.is_between(6350, 6351) | sic.is_between(6360, 6361) |
               sic.is_between(6370, 6379) | sic.is_between(6390, 6411)).then(46)
-        .when((sic == 6500) | (sic == 6510) | sic.is_between(6512, 6515) | sic.is_between(6517, 6519) | 
-              sic.is_between(6520, 6532) | sic.is_between(6540, 6541) | sic.is_between(6550, 6553) | 
+        .when((sic == 6500) | (sic == 6510) | sic.is_between(6512, 6515) | sic.is_between(6517, 6519) |
+              sic.is_between(6520, 6532) | sic.is_between(6540, 6541) | sic.is_between(6550, 6553) |
               sic.is_between(6590, 6599) | sic.is_between(6610, 6611)).then(47)
-        .when(sic.is_between(6200, 6299) | (sic == 6700) | sic.is_between(6710, 6726) | sic.is_between(6730, 6733) | 
+        .when(sic.is_between(6200, 6299) | (sic == 6700) | sic.is_between(6710, 6726) | sic.is_between(6730, 6733) |
               sic.is_between(6740, 6779) | sic.is_between(6790, 6795) | (sic == 6798) | sic.is_between(6799, 6799)).then(48)
-        .when(sic.is_between(4950, 4959) | sic.is_between(4960, 4961) | sic.is_between(4970, 4971) | 
+        .when(sic.is_between(4950, 4959) | sic.is_between(4960, 4961) | sic.is_between(4970, 4971) |
               sic.is_between(4990, 4991)).then(49)
         .otherwise(None)
     )
@@ -441,7 +441,10 @@ def standardize(df: pl.DataFrame):
     INFO_COLS = {
         'permno', 'date', 'datadate', 'gvkey', 'sic', 'count',
         'exchcd', 'shrcd', 'ffi49', 'ret', 'retadj', 'retx',
-        'lag_me', 'ticker', 'conm', 'comnam', 'prc', 'shrout'
+        'lag_me', 'ticker', 'conm', 'comnam', 'prc', 'shrout',
+        'primaryexch', 'conditionaltype', 'tradingstatusflg',
+        'sharetype', 'securitytype', 'securitysubtype',
+        'usincflg', 'issuertype',
     }
     col_names = [c for c in df.columns if c not in INFO_COLS]
 

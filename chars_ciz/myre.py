@@ -52,38 +52,11 @@ ibes_crsp = ibes_crsp.sort(['ticker', 'fpedats', 'statpers'])
 # Merging last month forecast #
 ###############################
 
-# Create shifted columns for comparison
+# Create last month columns using partitioned shift (no guard needed)
 ibes_crsp = ibes_crsp.with_columns([
-    pl.col('ticker').shift(1).alias('ticker_lag'),
-    pl.col('permno').shift(1).alias('permno_lag'),
-    pl.col('fpedats').shift(1).alias('fpedats_lag'),
-    pl.col('statpers').shift(1).alias('statpers_lag'),
-    pl.col('meanest').shift(1).alias('meanest_lag')
+    pl.col('statpers').shift(1).over(['ticker', 'fpedats']).alias('statpers_last_month'),
+    pl.col('meanest').shift(1).over(['ticker', 'fpedats']).alias('meanest_last_month'),
 ])
-
-# Create last month columns based on matching conditions
-ibes_crsp = ibes_crsp.with_columns([
-    pl.when(
-        (pl.col('ticker') == pl.col('ticker_lag')) &
-        (pl.col('permno') == pl.col('permno_lag')) &
-        (pl.col('fpedats') == pl.col('fpedats_lag'))
-    )
-    .then(pl.col('statpers_lag').cast(pl.Utf8))
-    .otherwise(None)
-    .alias('statpers_last_month'),
-    
-    pl.when(
-        (pl.col('ticker') == pl.col('ticker_lag')) &
-        (pl.col('permno') == pl.col('permno_lag')) &
-        (pl.col('fpedats') == pl.col('fpedats_lag'))
-    )
-    .then(pl.col('meanest_lag'))
-    .otherwise(None)
-    .alias('meanest_last_month')
-])
-
-# Drop temporary lag columns
-ibes_crsp = ibes_crsp.drop(['ticker_lag', 'permno_lag', 'fpedats_lag', 'statpers_lag', 'meanest_lag'])
 
 # Re-sort
 ibes_crsp = ibes_crsp.sort(['ticker', 'permno', 'fpedats', 'statpers'])
@@ -121,14 +94,14 @@ ibes_crsp = ibes_crsp.with_columns([
 # Calculate RE   #
 ##################
 
-# Create lagged monthly_revision columns
+# Create lagged monthly_revision columns (partition by permno_fpedats to avoid mixing forecast periods)
 ibes_crsp = ibes_crsp.with_columns([
-    pl.col('monthly_revision').shift(1).over('permno').alias('monthly_revision_l1'),
-    pl.col('monthly_revision').shift(2).over('permno').alias('monthly_revision_l2'),
-    pl.col('monthly_revision').shift(3).over('permno').alias('monthly_revision_l3'),
-    pl.col('monthly_revision').shift(4).over('permno').alias('monthly_revision_l4'),
-    pl.col('monthly_revision').shift(5).over('permno').alias('monthly_revision_l5'),
-    pl.col('monthly_revision').shift(6).over('permno').alias('monthly_revision_l6')
+    pl.col('monthly_revision').shift(1).over('permno_fpedats').alias('monthly_revision_l1'),
+    pl.col('monthly_revision').shift(2).over('permno_fpedats').alias('monthly_revision_l2'),
+    pl.col('monthly_revision').shift(3).over('permno_fpedats').alias('monthly_revision_l3'),
+    pl.col('monthly_revision').shift(4).over('permno_fpedats').alias('monthly_revision_l4'),
+    pl.col('monthly_revision').shift(5).over('permno_fpedats').alias('monthly_revision_l5'),
+    pl.col('monthly_revision').shift(6).over('permno_fpedats').alias('monthly_revision_l6')
 ])
 
 # Calculate RE based on count

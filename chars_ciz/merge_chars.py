@@ -2,8 +2,6 @@
 Merge accounting characteristics with satellite characteristics (rolling_chars, sue, abr, myre)
 and CRSP return data.
 
-Polars rewrite of chars_siz/merge_chars.py.
-
 Inputs (all from OUTPUT_PATH = ../data/processed/):
     - chars_a_accounting.parquet   (from accounting.py)
     - chars_q_accounting.parquet   (from accounting.py)
@@ -20,7 +18,6 @@ Outputs:
 """
 
 import polars as pl
-from pathlib import Path
 from functions import INPUT_PATH, OUTPUT_PATH
 
 # =====================================================================
@@ -50,7 +47,7 @@ _CRSP_SYNONYMS = {
 }
 
 
-def _load_satellite(filename: str, keep_cols: list[str], date_col: str) -> pl.DataFrame:
+def _load_satellite(filename, keep_cols, date_col):
     """Load a satellite parquet, align date to month-end, deduplicate."""
     df = pl.read_parquet(OUTPUT_PATH + filename)
     df = df.with_columns([
@@ -62,7 +59,7 @@ def _load_satellite(filename: str, keep_cols: list[str], date_col: str) -> pl.Da
     return df
 
 
-def _load_rolling_chars() -> pl.DataFrame:
+def _load_rolling_chars():
     """Load rolling_chars parquet."""
     df = pl.read_parquet(OUTPUT_PATH + _ROLLING_CHARS_FILE)
     df = df.with_columns([
@@ -75,10 +72,10 @@ def _load_rolling_chars() -> pl.DataFrame:
     return df
 
 
-def _build_crsp_backfill() -> pl.DataFrame:
+def _build_crsp_backfill():
     """
-    Build a CRSP backfill table with delisting-adjusted returns.
-    Used to fill missing ret/retx/me in accounting chars that lack CRSP coverage.
+    Build a CRSP backfill table for missing ret/retx/me.
+    CIZ (v2) mthret already includes delisting returns — no separate adjustment needed.
     """
     crsp = pl.read_parquet(INPUT_PATH + 'crsp_msf.parquet')
     crsp = crsp.rename(_CRSP_SYNONYMS, strict=False)
@@ -94,6 +91,13 @@ def _build_crsp_backfill() -> pl.DataFrame:
         pl.col('primaryexch').is_in(['N', 'A', 'Q']) &
         (pl.col('conditionaltype') == 'RW') &
         (pl.col('tradingstatusflg') == 'A')
+    )
+    crsp = crsp.filter(
+        (pl.col('sharetype') == 'NS') &
+        (pl.col('securitytype') == 'EQTY') &
+        (pl.col('securitysubtype') == 'COM') &
+        (pl.col('usincflg') == 'Y') &
+        (pl.col('issuertype').is_in(['ACOR', 'CORP']))
     )
 
     crsp = crsp.with_columns([
@@ -111,45 +115,27 @@ def _build_crsp_backfill() -> pl.DataFrame:
         pl.col('retx').cast(pl.Float64).fill_null(0),
     ])
 
-    # delisting returns
-    dlret_path = Path(INPUT_PATH) / 'crsp_dlret.parquet'
-    if dlret_path.exists():
-        dlret = pl.read_parquet(str(dlret_path))
-        dlret = dlret.with_columns([
-            pl.col('permno').cast(pl.Int64),
-            pl.col('dlstdt').cast(pl.Date).dt.month_end().alias('jdate'),
-            pl.col('dlret').cast(pl.Float64),
-        ])
-        dlret = dlret.select(['permno', 'jdate', 'dlret'])
-        crsp = crsp.join(dlret, on=['permno', 'jdate'], how='left')
-    else:
-        crsp = crsp.with_columns(pl.lit(0.0).alias('dlret'))
-
-    crsp = crsp.with_columns([
-        pl.col('dlret').fill_null(0),
-        ((1 + pl.col('ret')) * (1 + pl.col('dlret')) - 1).alias('retadj'),
-    ])
-
-    # aggregate me: assign sum-of-permco-me to largest permno
-    crsp_summe = crsp.group_by(['jdate', 'permco']).agg(pl.col('me').sum().alias('me_sum'))
-    crsp_maxme = crsp.group_by(['jdate', 'permco']).agg(pl.col('me').max().alias('me_max'))
-    crsp = crsp.join(crsp_maxme, on=['jdate', 'permco'], how='left')
-    crsp = crsp.filter(pl.col('me') == pl.col('me_max')).drop('me_max')
-    crsp = crsp.drop('me').join(crsp_summe, on=['jdate', 'permco'], how='left').rename({'me_sum': 'me'})
-
-    crsp = crsp.sort(['permno', 'jdate']).unique(subset=['permno', 'jdate'], keep='last')
+    # aggregate me: assign sum-of-permco-me to the permno with the largest me
+    crsp_summe = crsp.group_by(['jdate', 'permco']).agg(pl.col('me').sum())
+    crsp_maxme = crsp.group_by(['jdate', 'permco']).agg(pl.col('me').max())
+    crsp = crsp.join(crsp_maxme, on=['jdate', 'permco', 'me'], how='inner')
+    crsp = (crsp
+        .drop('me')
+        .join(crsp_summe, on=['jdate', 'permco'], how='inner')
+        .sort(['permno', 'jdate'])
+        .unique(subset=['permno', 'jdate'], keep='last')
+    )
 
     crsp = crsp.select([
         'permno', 'jdate',
         pl.col('ret').alias('ret_fill'),
         pl.col('retx').alias('retx_fill'),
-        pl.col('retadj').alias('retadj_fill'),
         pl.col('me').alias('me_fill'),
     ])
     return crsp
 
 
-def _merge_satellites(chars: pl.DataFrame) -> pl.DataFrame:
+def _merge_satellites(chars):
     """Merge all satellite characteristics into chars."""
     # rolling chars
     rolling = _load_rolling_chars()
@@ -163,10 +149,10 @@ def _merge_satellites(chars: pl.DataFrame) -> pl.DataFrame:
     return chars
 
 
-def _backfill_crsp(chars: pl.DataFrame, crsp_fill: pl.DataFrame) -> pl.DataFrame:
+def _backfill_crsp(chars, crsp_fill):
     """Fill missing ret/retx/retadj/me from CRSP backfill table."""
     chars = chars.join(crsp_fill, on=['permno', 'jdate'], how='left')
-    for col_name in ['ret', 'retx', 'retadj', 'me']:
+    for col_name in ['ret', 'retx', 'me']:
         fill_col = f'{col_name}_fill'
         if fill_col in chars.columns and col_name in chars.columns:
             chars = chars.with_columns([
@@ -191,14 +177,13 @@ if __name__ == '__main__':
     chars_q = pl.read_parquet(OUTPUT_PATH + 'chars_q_accounting.parquet')
 
     # ensure types
-    for df_name in ['chars_a', 'chars_q']:
-        df = eval(df_name)
+    for label, df in [('chars_a', chars_a), ('chars_q', chars_q)]:
         df = df.with_columns([
             pl.col('permno').cast(pl.Int64),
             pl.col('jdate').cast(pl.Date),
         ])
         df = df.unique(subset=['permno', 'jdate'], keep='last')
-        if df_name == 'chars_a':
+        if label == 'chars_a':
             chars_a = df
         else:
             chars_q = df

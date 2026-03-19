@@ -120,110 +120,111 @@ ccm1 = ccm1.filter(pl.col("rdq_trad").is_not_null()).with_columns([
 
 # Make sure the trading day version of rdq is within the window bounds
 con = duckdb.connect(":memory:")
-con.execute(f"SET threads TO {num_threads};")
+try:
+    con.execute(f"SET threads TO {num_threads};")
 
-con.register("ccm_data", ccm1.to_arrow())
-con.register("crsp_data", crsp_d.to_arrow())
+    con.register("ccm_data", ccm1.to_arrow())
+    con.register("crsp_data", crsp_d.to_arrow())
 
-df = con.execute("""
-    SELECT a.gvkey, a.permno, a.datadate, a.fyearq, a.fqtr, 
-           a.rdq, a.rdq_trad, b.date, b.abrd
-    FROM ccm_data a 
-    LEFT JOIN crsp_data b 
-    ON a.permno = b.permno 
-    AND a.minus10d <= b.date 
-    AND b.date <= a.plus5d
-    ORDER BY a.permno, a.rdq_trad, b.date
-""").pl()
+    df = con.execute("""
+        SELECT a.gvkey, a.permno, a.datadate, a.fyearq, a.fqtr,
+               a.rdq, a.rdq_trad, b.date, b.abrd
+        FROM ccm_data a
+        LEFT JOIN crsp_data b
+        ON a.permno = b.permno
+        AND a.minus10d <= b.date
+        AND b.date <= a.plus5d
+        ORDER BY a.permno, a.rdq_trad, b.date
+    """).pl()
 
-# Filter out missing returns
-df = df.filter(pl.col("abrd").is_not_null())
+    # Filter out missing returns
+    df = df.filter(pl.col("abrd").is_not_null())
 
-###############################
-#    Count trading days       #
-###############################
-df = df.sort(["permno", "rdq_trad", "date"])
+    ###############################
+    #    Count trading days       #
+    ###############################
+    df = df.sort(["permno", "rdq_trad", "date"])
 
-# Assign direction indicator: 0 = rdq, positive = after, negative = before
-# This is used to count trading days before and after rdq_trad
-df = df.with_columns(
-    pl.when(pl.col("date") == pl.col("rdq_trad")).then(pl.lit(0))
-    .when(pl.col("date") > pl.col("rdq_trad")).then(pl.lit(1))
-    .when(pl.col("date") < pl.col("rdq_trad")).then(pl.lit(-1))
-    .alias("c_1")
-)
-
-# Trading days before rdq_trad (count descending: -1, -2, -3, ...)
-df_before = (
-    df.filter(pl.col("c_1") == -1)
-    .sort(["permno", "rdq_trad", "date"], descending=[False, False, True])
-    .with_columns(
-        (-(pl.int_range(pl.len()).over(["permno", "rdq_trad"]) + 1)).alias("count")
+    # Assign direction indicator: 0 = rdq, positive = after, negative = before
+    # This is used to count trading days before and after rdq_trad
+    df = df.with_columns(
+        pl.when(pl.col("date") == pl.col("rdq_trad")).then(pl.lit(0))
+        .when(pl.col("date") > pl.col("rdq_trad")).then(pl.lit(1))
+        .when(pl.col("date") < pl.col("rdq_trad")).then(pl.lit(-1))
+        .alias("c_1")
     )
-    .sort(["permno", "rdq_trad", "date"])
-)
 
-# Trading days on or after rdq_trad (count: 0, 1, 2, ...)
-df_after = (
-    df.filter(pl.col("c_1") >= 0)
-    .with_columns(
-        pl.int_range(pl.len()).over(["permno", "rdq_trad"]).alias("count")
+    # Trading days before rdq_trad (count descending: -1, -2, -3, ...)
+    df_before = (
+        df.filter(pl.col("c_1") == -1)
+        .sort(["permno", "rdq_trad", "date"], descending=[False, False, True])
+        .with_columns(
+            (-(pl.col("date").cum_count().over(["permno", "rdq_trad"]))).alias("count")
+        )
+        .sort(["permno", "rdq_trad", "date"])
     )
-)
 
-df = pl.concat([df_before, df_after])
+    # Trading days on or after rdq_trad (count: 0, 1, 2, ...)
+    df_after = (
+        df.filter(pl.col("c_1") >= 0)
+        .with_columns(
+            (pl.col("date").cum_count().over(["permno", "rdq_trad"]) - 1).alias("count")
+        )
+    )
 
-###############################
-#    Calculate ABR            #
-###############################
-# Filter to event window [-2, +1]
-df = df.filter((pl.col("count") >= -2) & (pl.col("count") <= 1))
+    df = pl.concat([df_before, df_after])
 
-# Sum abnormal returns by group
-df_abr = (
-    df.group_by(["permno", "rdq_trad"])
-    .agg(pl.col("abrd").sum().alias("abr"))
-)
+    ###############################
+    #    Calculate ABR            #
+    ###############################
+    # Filter to event window [-2, +1]
+    df = df.filter((pl.col("count") >= -2) & (pl.col("count") <= 1))
 
-# Join ABR back and keep only count == 1 rows (rdq + 1 day)
-df = (
-    df.join(df_abr, on=["permno", "rdq_trad"], how="left")
-    .filter(pl.col("count") == 1)
-    .rename({"date": "rdq_plus_1d"})
-    .select(["gvkey", "permno", "datadate", "rdq", "rdq_plus_1d", "abr"])
-)
+    # Sum abnormal returns by group
+    df_abr = (
+        df.group_by(["permno", "rdq_trad"])
+        .agg(pl.col("abrd").sum().alias("abr"))
+    )
 
-###############################
-#    Populate to monthly      #
-###############################
-# Make sure the abr is used between rdq_plus_1d and plus12m
-# Get monthly dates from CRSP monthly file
-crsp_msf = (
-    pl.scan_parquet(INPUT_PATH + "crsp_msf.parquet")
-    .select(pl.col("mthcaldt").cast(pl.Date).alias("date"))
-    .unique()
-    .collect()
-)
+    # Join ABR back and keep only count == 1 rows (rdq + 1 day)
+    df = (
+        df.join(df_abr, on=["permno", "rdq_trad"], how="left")
+        .filter(pl.col("count") == 1)
+        .rename({"date": "rdq_plus_1d"})
+        .select(["gvkey", "permno", "datadate", "rdq", "rdq_plus_1d", "abr"])
+    )
 
-# Add 12-month forward bound
-df = df.with_columns(
-    (pl.col("datadate") + pl.duration(days=365)).dt.month_end().alias("plus12m")
-)
+    ###############################
+    #    Populate to monthly      #
+    ###############################
+    # Make sure the abr is used between rdq_plus_1d and plus12m
+    # Get monthly dates from CRSP monthly file
+    crsp_msf = (
+        pl.scan_parquet(INPUT_PATH + "crsp_msf.parquet")
+        .select(pl.col("mthcaldt").cast(pl.Date).alias("date"))
+        .unique()
+        .collect()
+    )
 
-# Use DuckDB for the range join (reuse connection)
-con.register("df_data", df.to_arrow())
-con.register("msf_data", crsp_msf.to_arrow())
+    # Add 12-month forward bound
+    df = df.with_columns(
+        pl.col("datadate").dt.offset_by("12mo").dt.month_end().alias("plus12m")
+    )
 
-df = con.execute("""
-    SELECT a.gvkey, a.permno, a.datadate, a.rdq, a.rdq_plus_1d, a.abr, b.date
-    FROM df_data a 
-    LEFT JOIN msf_data b 
-    ON a.rdq_plus_1d < b.date
-    AND a.plus12m >= b.date
-    ORDER BY a.permno, b.date, a.datadate DESC
-""").pl()
+    # Use DuckDB for the range join (reuse connection)
+    con.register("df_data", df.to_arrow())
+    con.register("msf_data", crsp_msf.to_arrow())
 
-con.close()
+    df = con.execute("""
+        SELECT a.gvkey, a.permno, a.datadate, a.rdq, a.rdq_plus_1d, a.abr, b.date
+        FROM df_data a
+        LEFT JOIN msf_data b
+        ON a.rdq_plus_1d < b.date
+        AND a.plus12m >= b.date
+        ORDER BY a.permno, b.date, a.datadate DESC
+    """).pl()
+finally:
+    con.close()
 
 # Drop duplicates keeping first (most recent datadate per permno-month)
 df = (
