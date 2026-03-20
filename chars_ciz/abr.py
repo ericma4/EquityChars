@@ -79,34 +79,24 @@ ccm1 = (
 #############################
 #    CRSP abnormal return   #
 #############################
-# Load CRSP daily data
+# Load CRSP daily data with Fama-French market return (mktrf + rf)
 crsp_d = (
     pl.scan_parquet(INPUT_PATH + "crsp_dsf.parquet")
     .select([
         pl.col("permno").cast(pl.Int64),
         pl.col("dlycaldt").cast(pl.Date).alias("date"),
         pl.col("dlyret").alias("ret"),
+        (pl.col("mktrf") + pl.col("rf")).alias("mkt"),
     ])
     .collect()
 )
 
-# Load S&P 500 returns from index data
-sp500 = (
-    pl.scan_parquet(INPUT_PATH + "crsp_ind.parquet")
-    .select([
-        pl.col("dlycaldt").cast(pl.Date).alias("date"),
-        pl.col("dlyprcret").alias("sprtrn"),
-    ])
-    .collect()
-)
-
-# Join to get abnormal returns
+# Abnormal return = stock total return - CRSP VW market total return
 crsp_d = (
-    crsp_d.join(sp500, on="date", how="left")
-    .with_columns(
-        (pl.col("ret") - pl.col("sprtrn")).alias("abrd")
+    crsp_d.with_columns(
+        (pl.col("ret") - pl.col("mkt")).alias("abrd")
     )
-    .select(["date", "permno", "ret", "sprtrn", "abrd"])
+    .select(["date", "permno", "ret", "mkt", "abrd"])
 )
 
 ################################
