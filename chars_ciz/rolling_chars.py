@@ -264,29 +264,6 @@ def beta_ff5(df, min_obs=21):
     return result
 
 
-def rvar_capm(df, min_obs=21):
-    """
-    CAPM residual variance using polars_ols
-    Computes var(residuals) from: exret ~ mktrf
-    """
-    res_exp = pl.col("exret").least_squares.ols(
-        "mktrf",
-        add_intercept=True,
-        mode="residuals"
-    )
-    result = (
-        df.filter(col("mktrf").is_not_null())
-        .group_by(["permno", "group_number"])
-        .agg([
-            res_exp.var().alias("rvar_capm"),
-            pl.len().alias("n_obs"),
-        ])
-        .filter(col("n_obs") >= min_obs)
-        .drop("n_obs")
-    )
-    return result
-
-
 def rvar_ff3(df, min_obs=21):
     """
     Fama-French 3-factor residual variance using polars_ols
