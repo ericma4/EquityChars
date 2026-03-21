@@ -158,7 +158,7 @@ try:
     df_after = (
         df.filter(pl.col("c_1") >= 0)
         .with_columns(
-            (pl.col("date").cum_count().over(["permno", "rdq_trad"]) - 1).alias("count")
+            (pl.col("date").cum_count().over(["permno", "rdq_trad"]).cast(pl.Int64) - 1).alias("count")
         )
     )
 

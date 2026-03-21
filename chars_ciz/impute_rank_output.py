@@ -17,7 +17,7 @@ Logic:
 import polars as pl
 from tqdm import tqdm
 
-from functions import ffi49, fillna_ind, fillna_all, standardize
+from functions import ffi49, fillna_ind, fillna_all, standardize, INPUT_PATH, OUTPUT_PATH
 
 # =====================================================================
 #  Variable lists
@@ -181,8 +181,8 @@ if __name__ == '__main__':
     # Load
     # ------------------------------------------------------------------
     print("Loading raw chars...", flush=True)
-    chars_a = pl.read_parquet('chars_a_raw.parquet')
-    chars_q = pl.read_parquet('chars_q_raw.parquet')
+    chars_a = pl.read_parquet(OUTPUT_PATH + 'chars_a_raw.parquet')
+    chars_q = pl.read_parquet(OUTPUT_PATH + 'chars_q_raw.parquet')
 
     chars_a = (
         chars_a.drop_nulls(subset=['permno'])
@@ -226,7 +226,7 @@ if __name__ == '__main__':
     # Output 1: raw (no imputation)
     # ------------------------------------------------------------------
     print("Saving chars_raw_no_impute.parquet ...", flush=True)
-    df.write_parquet('chars_raw_no_impute.parquet')
+    df.write_parquet(OUTPUT_PATH + 'chars_raw_no_impute.parquet')
 
     # ------------------------------------------------------------------
     # Output 2: imputed (industry-median → cross-sectional-median)
@@ -244,7 +244,7 @@ if __name__ == '__main__':
         df_impute = df_impute.with_columns(pl.col('re').fill_null(0))
 
     print("Saving chars_raw_imputed.parquet ...", flush=True)
-    df_impute.write_parquet('chars_raw_imputed.parquet')
+    df_impute.write_parquet(OUTPUT_PATH + 'chars_raw_imputed.parquet')
 
     # ------------------------------------------------------------------
     # Output 3: ranked (no imputation)
@@ -252,7 +252,7 @@ if __name__ == '__main__':
     print("Ranking (no impute)...", flush=True)
     df_rank = _rank_df(df)
     print("Saving chars_rank_no_impute.parquet ...", flush=True)
-    df_rank.write_parquet('chars_rank_no_impute.parquet')
+    df_rank.write_parquet(OUTPUT_PATH + 'chars_rank_no_impute.parquet')
     del df_rank
 
     # ------------------------------------------------------------------
@@ -261,7 +261,7 @@ if __name__ == '__main__':
     print("Ranking (imputed)...", flush=True)
     df_rank_imp = _rank_df(df_impute)
     print("Saving chars_rank_imputed.parquet ...", flush=True)
-    df_rank_imp.write_parquet('chars_rank_imputed.parquet')
+    df_rank_imp.write_parquet(OUTPUT_PATH + 'chars_rank_imputed.parquet')
 
     print("Done.", flush=True)
     print(f"  Final columns ({len(df.columns)}): {df.columns}")
