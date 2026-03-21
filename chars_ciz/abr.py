@@ -149,7 +149,7 @@ try:
         df.filter(pl.col("c_1") == -1)
         .sort(["permno", "rdq_trad", "date"], descending=[False, False, True])
         .with_columns(
-            (-(pl.col("date").cum_count().over(["permno", "rdq_trad"]))).alias("count")
+            (-(pl.col("date").cum_count().over(["permno", "rdq_trad"]).cast(pl.Int64))).alias("count")
         )
         .sort(["permno", "rdq_trad", "date"])
     )
