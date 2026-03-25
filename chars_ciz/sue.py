@@ -7,6 +7,14 @@ from pathlib import Path
 from datetime import date
 from functions import INPUT_PATH, OUTPUT_PATH
 
+def safe_div(num, denom, eps=1e-6):
+    """Return num / denom, but null out zero or near-zero denominators."""
+    return (
+        pl.when(denom.is_not_null() & (denom.abs() > eps))
+          .then(num / denom)
+          .otherwise(None)
+    )
+
 ###################
 # Compustat Block #
 ###################
@@ -41,8 +49,9 @@ ccm2 = (
 )
 
 # Calculate EPS = epspxq / ajexq
+# (fixed-20260325) guard against zero or near-zero adjustment factor in EPS.
 ccm2 = ccm2.with_columns([
-    (pl.col("epspxq") / pl.col("ajexq").replace(0, None)).alias("eps")
+    safe_div(pl.col("epspxq"), pl.col("ajexq")).alias("eps")
 ])
 ccm2 = ccm2.unique(subset=["permno", "datadate"])
 
@@ -89,8 +98,12 @@ ccm2 = ccm2.with_columns([
 ])
 
 # Calculate SUE
+# (fixed-20260325) guard against zero or near-zero surprise volatility in SUE.
 ccm2 = ccm2.with_columns([
-    ((pl.col("eps") - pl.col("e4")) / pl.col("sue_std").replace(0, None)).alias("sue")
+    safe_div(
+        pl.col("eps") - pl.col("e4"),
+        pl.col("sue_std")
+    ).alias("sue")
 ])
 
 print(f"Calculated SUE: {ccm2.shape}")

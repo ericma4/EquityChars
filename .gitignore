@@ -197,3 +197,4 @@ cython_debug/
 wrds/
 
 *.parquet
+*.md

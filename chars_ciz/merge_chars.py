@@ -58,6 +58,19 @@ def _load_satellite(filename, keep_cols, date_col):
     df = df.unique(subset=['permno', 'jdate'], keep='last')
     return df
 
+def _clean_float_cols(df):
+    """Replace NaN and ±inf with null in all float columns."""
+    float_cols = [c for c in df.columns if df[c].dtype in (pl.Float32, pl.Float64)]
+    if not float_cols:
+        return df
+    return df.with_columns([
+        pl.when(pl.col(c).is_nan() | pl.col(c).is_infinite())
+          .then(None)
+          .otherwise(pl.col(c))
+          .alias(c)
+        for c in float_cols
+    ])
+
 
 def _load_rolling_chars():
     """Load rolling_chars parquet."""
@@ -66,6 +79,9 @@ def _load_rolling_chars():
         pl.col('permno').cast(pl.Int64),
         pl.col('date').cast(pl.Date).dt.month_end().alias('jdate'),
     ])
+    # (fixed-20260325) clean rolling characteristic float columns at merge stage
+    # so embedded NaN / inf from upstream do not flow directly into chars_a_raw / chars_q_raw.
+    df = _clean_float_cols(df)
     available = [c for c in _ROLLING_CHARS_COLS if c in df.columns]
     df = df.select(['permno', 'jdate'] + available)
     df = df.unique(subset=['permno', 'jdate'], keep='last')

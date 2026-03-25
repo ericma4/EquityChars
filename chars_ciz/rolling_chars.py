@@ -171,7 +171,13 @@ def std_dolvol(df, min_obs=21):
     return (
         df.group_by(["permno", "group_number"])
         .agg([
-            ((col("vol") * col("prc").abs()).log()).std().alias("std_dolvol"),
+            # (fixed-20260325) null out non-positive dollar volume before log()
+            # to avoid embedded NaN / inf in std_dolvol.
+            (
+                pl.when((col("vol") * col("prc").abs()) > 0)
+                  .then((col("vol") * col("prc").abs()).log())
+                  .otherwise(None)
+            ).std().alias("std_dolvol"),
             pl.len().alias("n_obs"),
         ])
         .filter(col("n_obs") >= min_obs)
@@ -186,7 +192,9 @@ def std_turn(df, min_obs=21):
     return (
         df.group_by(["permno", "group_number"])
         .agg([
-            (col("vol") / col("shrout")).std().alias("std_turn"),
+            # (fixed-20260325) guard against zero shares outstanding when
+            # computing daily turnover for std_turn.
+            (col("vol") / col("shrout").replace(0, None)).std().alias("std_turn"),
             pl.len().alias("n_obs"),
         ])
         .filter(col("n_obs") >= min_obs)
@@ -194,6 +202,7 @@ def std_turn(df, min_obs=21):
     )
 
 
+# (fixed-20260323) Liu(2006): use a deflator of 11,000 in constructing LM6 and LM12, and a deflator of 480,000 for LM1.
 def zerotrade(df, min_obs=21):
     """
     Zero trading days measure:
@@ -203,15 +212,20 @@ def zerotrade(df, min_obs=21):
         df.group_by(["permno", "group_number"])
         .agg([
             (col("vol") == 0).sum().alias("zero_count"),
-            (col("vol") / col("shrout")).sum().alias("turn_sum"),
+            # (fixed-20260325) guard against zero shares outstanding in turnover sum.
+            (col("vol") / col("shrout").replace(0, None)).sum().alias("turn_sum"),
             pl.len().alias("n_obs"),
         ])
         .filter(col("n_obs") >= min_obs)
         .with_columns([
-            (
-                (col("zero_count") + (1.0 / col("turn_sum")) / 11000) 
+            # (fixed-20260325) guard against zero or near-zero turnover sum in zerotrade.
+            pl.when(col("turn_sum").abs() > 1e-12)
+            .then(
+                (col("zero_count") + (1.0 / col("turn_sum")) / 11000)
                 * 63.0 / col("n_obs")
-            ).alias("zerotrade")
+            )
+            .otherwise(None)
+            .alias("zerotrade")
         ])
         .select(["permno", "group_number", "zerotrade"])
     )
@@ -225,7 +239,13 @@ def ill(df, min_obs=21):
     return (
         df.group_by(["permno", "group_number"])
         .agg([
-            (col("ret").abs() / (col("prc").abs() * col("vol"))).mean().alias("ill"),
+            # (fixed-20260325) null out zero dollar volume observations before
+            # aggregation to avoid embedded NaN / inf in ill.
+            (
+                pl.when((col("prc").abs() * col("vol")) > 0)
+                  .then(col("ret").abs() / (col("prc").abs() * col("vol")))
+                  .otherwise(None)
+            ).mean().alias("ill"),
             pl.len().alias("n_obs"),
         ])
         .filter(col("n_obs") >= min_obs)
@@ -421,7 +441,7 @@ def compute_all_rolling_chars(input_path, output_path, n_months=3, min_obs=21):
         (std_turn, "std_turn"),
         (zerotrade, "zerotrade"),
         (ill, "ill"),
-        (beta_ff5, "beta_ff5"),
+        # (beta_ff5, "beta_ff5"),
         (rvar_ff3, "rvar_ff3"),
     ]
     
@@ -458,10 +478,23 @@ def compute_all_rolling_chars(input_path, output_path, n_months=3, min_obs=21):
         .drop("aux_date")
         .sort(["permno", "date"])
     )
-    
+
+    # (fixed-20260325) final safeguard: replace embedded NaN / inf in float columns
+    # before writing rolling_chars.parquet.
+    float_cols = [c for c in output.columns if output[c].dtype in (pl.Float32, pl.Float64)]
+    if float_cols:
+        output = output.with_columns([
+            pl.when(pl.col(c).is_nan() | pl.col(c).is_infinite())
+            .then(None)
+            .otherwise(pl.col(c))
+            .alias(c)
+            for c in float_cols
+        ])
+
     # 6. Write output
     print(f"Writing output to {output_path}...", flush=True)
     output.write_parquet(output_path)
+
     
     print(f"✓ Completed! Output shape: {output.shape}", flush=True)
     print(f"  Unique permnos: {output['permno'].n_unique()}", flush=True)

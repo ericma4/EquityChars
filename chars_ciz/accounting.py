@@ -358,8 +358,17 @@ data_rawa = data_rawa.with_columns([
 ])
 
 data_rawa = data_rawa.with_columns([
-    pl.col('ffi49').fill_nan(49).cast(pl.Int64)
+    pl.col('ffi49').fill_null(49).cast(pl.Int64).alias('ffi49')
 ])
+
+def safe_div(num, denom, eps=1e-6):
+    """Return num / denom, but null out zero or near-zero denominators."""
+    return (
+        pl.when(denom.is_not_null() & (denom.abs() > eps))
+          .then(num / denom)
+          .otherwise(None)
+    )
+
 #######################################################################################################################
 #                                                  Annual Variables                                                   #
 #######################################################################################################################
@@ -537,8 +546,9 @@ data_rawa = data_rawa.with_columns([
 ])
 
 # chcsho
+# (fixed-20260325) guard against zero or near-zero lagged shares outstanding.
 data_rawa = data_rawa.with_columns([
-    ((pl.col('csho') / pl.col('csho_l1').replace(0, None)) - 1).alias('chcsho')
+    (safe_div(pl.col('csho'), pl.col('csho_l1')) - 1).alias('chcsho')
 ])
 
 # lgr
@@ -578,8 +588,9 @@ data_rawa = data_rawa.with_columns([
 ])
 
 # sgr
+# (fixed-20260325) guard against zero or near-zero lagged sales.
 data_rawa = data_rawa.with_columns([
-    ((pl.col('sale') / pl.col('sale_l1').replace(0, None)) - 1).alias('sgr')
+    (safe_div(pl.col('sale'), pl.col('sale_l1')) - 1).alias('sgr')
 ])
 
 # chato
@@ -623,8 +634,9 @@ data_rawa = data_rawa.with_columns([
 
 # rna
 # (fix)2026-02-27: use noa_raw (unscaled) as denominator instead of noa (scaled by at_l1)
+# (fixed-20260325) guard against zero or near-zero lagged NOA.
 data_rawa = data_rawa.with_columns([
-    (pl.col('oiadp') / pl.col('noa_raw_l1').replace(0, None)).alias('rna')
+    safe_div(pl.col('oiadp'), pl.col('noa_raw_l1')).alias('rna')
 ])
 
 # pm
@@ -634,8 +646,9 @@ data_rawa = data_rawa.with_columns([
 
 # ato
 # (fix)2026-02-27: use noa_raw (unscaled) as denominator instead of noa (scaled by at_l1)
+# (fixed-20260325) guard against zero or near-zero lagged NOA.
 data_rawa = data_rawa.with_columns([
-    (pl.col('sale') / pl.col('noa_raw_l1').replace(0, None)).alias('ato')
+    safe_div(pl.col('sale'), pl.col('noa_raw_l1')).alias('ato')
 ])
 
 # depr
@@ -710,9 +723,11 @@ data_rawa = data_rawa.with_columns([
 ################## Added on 2020.07.28 ##################
 
 # roic
+# (fixed-20260325) guard against zero or near-zero invested capital.
 data_rawa = data_rawa.with_columns([
-    ((pl.col('ebit') - pl.col('nopi')) /
-     (pl.col('ceq') + pl.col('lt') - pl.col('che')).replace(0, None)
+    safe_div(
+        pl.col('ebit') - pl.col('nopi'),
+        pl.col('ceq') + pl.col('lt') - pl.col('che')
     ).alias('roic')
 ])
 
@@ -779,12 +794,16 @@ data_rawa = data_rawa.with_columns([
 data_rawa = data_rawa.with_columns([
     pl.col('xad').shift(1).over('permno').alias('xad_l1')
 ])
-
+# (fixed-20260322) first when, then check both current and lagged xad for null and >= 0.1, then compute log difference; otherwise set to null.
 data_rawa = data_rawa.with_columns([
-    (pl.col('xad').log() - pl.col('xad_l1').log()).alias('chadv')
-]).filter(
-    (pl.col('xad') >= 0.1) & (pl.col('xad_l1') >= 0.1) # HXZ(A.5.3)
-)
+    pl.when(
+        pl.col('xad').is_not_null() & pl.col('xad_l1').is_not_null() &
+        (pl.col('xad') > 0) & (pl.col('xad_l1') > 0)
+    )
+    .then(pl.col('xad').log() - pl.col('xad_l1').log())
+    .otherwise(None)
+    .alias('chadv')
+])
 
 # pchcapx
 data_rawa = data_rawa.with_columns([
@@ -906,19 +925,43 @@ data_rawa = data_rawa.with_columns([
     pl.col('ap').shift(1).over('permno').alias('ap_l1'),
     pl.col('lco').shift(1).over('permno').alias('lco_l1'),
     pl.col('lo').shift(1).over('permno').alias('lo_l1'),
-    pl.col('rect').shift(1).over('permno').alias('rect_l1')
+    pl.col('rect').shift(1).over('permno').alias('rect_l1'),
+    pl.col('invt').shift(1).over('permno').alias('invt_l1'),
+    pl.col('ppent').shift(1).over('permno').alias('ppent_l1')
 ])
-
+# LTNOA_t and LTNOA_{t-1}
 data_rawa = data_rawa.with_columns([
-    (((pl.col('rect') + pl.col('invt') + pl.col('ppent') + pl.col('aco') + pl.col('intan') +
-       pl.col('ao') - pl.col('ap') - pl.col('lco') - pl.col('lo')) -
-      (pl.col('rect_l1') + pl.col('invt_l1') + pl.col('ppent_l1') + pl.col('aco_l1') +
-       pl.col('intan_l1') + pl.col('ao_l1') - pl.col('ap_l1') - pl.col('lco_l1') - pl.col('lo_l1')) -
-      (pl.col('rect') - pl.col('rect_l1') + pl.col('invt') - pl.col('invt_l1') +
-       pl.col('aco') - pl.col('aco_l1') -
-       (pl.col('ap') - pl.col('ap_l1') + pl.col('lco') - pl.col('lco_l1')) - pl.col('dp'))) /
-     ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None))
-     .alias('grltnoa')
+    (
+        pl.col('rect') + pl.col('invt') + pl.col('ppent') +
+        pl.col('aco') + pl.col('intan') + pl.col('ao') -
+        pl.col('ap') - pl.col('lco') - pl.col('lo')
+    ).alias('ltnoa_t'),
+    (
+        pl.col('rect_l1') + pl.col('invt_l1') + pl.col('ppent_l1') +
+        pl.col('aco_l1') + pl.col('intan_l1') + pl.col('ao_l1') -
+        pl.col('ap_l1') - pl.col('lco_l1') - pl.col('lo_l1')
+    ).alias('ltnoa_l1')
+])
+# Working-capital operating accrual component
+data_rawa = data_rawa.with_columns([
+    (
+        (pl.col('rect') - pl.col('rect_l1')) +
+        (pl.col('invt') - pl.col('invt_l1')) +
+        (pl.col('aco') - pl.col('aco_l1')) -
+        (
+            (pl.col('ap') - pl.col('ap_l1')) +
+            (pl.col('lco') - pl.col('lco_l1'))
+        )
+    ).alias('wcnoa_change')
+])
+# Fairfield et al. style grltnoa:
+# LTNOA_t / at_t - LTNOA_{t-1} / at_{t-1} - WCNOA_change / avg(at_t, at_{t-1})
+data_rawa = data_rawa.with_columns([
+    (
+        (pl.col('ltnoa_t') / pl.col('at').replace(0, None)) -
+        (pl.col('ltnoa_l1') / pl.col('at_l1').replace(0, None)) -
+        (pl.col('wcnoa_change') / ((pl.col('at') + pl.col('at_l1')) / 2).replace(0, None))
+    ).alias('grltnoa')
 ])
 
 # conv
@@ -1010,7 +1053,6 @@ data_rawa = data_rawa.with_columns([
      (pl.col('ib_l1') / pl.col('sale_l1').replace(0, None))).alias('chpm')
 ])
 
-# (fixed): fill_null(0)在读取后统一处理
 # ala
 data_rawa = data_rawa.with_columns([
     (pl.col('che') + 0.75 * (pl.col('act') - pl.col('che')) -
@@ -1335,17 +1377,18 @@ ccm1 = ccm1.with_columns([
 ccm1 = ccm1.with_columns([
     pl.when(pl.col('rdq').is_null()).then(pl.col('jdate')).otherwise(pl.col('rdq')).alias('rdq')
 ])
+# IMPORTANT: enforce chronological order within permno before lead/lag logic
+ccm1 = ccm1.sort(['permno', 'datadate', 'rdq', 'jdate'])
 # compare next quarter's announcement date with jdate
 ccm1 = ccm1.with_columns([
-    pl.col('rdq').shift(-1).over('permno').alias('rdq_temp')
+    pl.col('rdq').shift(-1).over('permno').alias('rdq_temp'),
+    pl.col('ibq').shift(-1).over('permno').alias('ibq_new')
 ])
 ccm1 = ccm1.with_columns([
     pl.when(pl.col('rdq_temp').is_null()).then(pl.col('jdate')).otherwise(pl.col('rdq_temp')).alias('rdq_temp')
 ])
-# compare next quarter's announcement date with jdate
 ccm1 = ccm1.with_columns([
-    (pl.col('jdate') - pl.col('rdq_temp')).dt.total_days().alias('ibq_diff'),
-    pl.col('ibq').shift(-1).over('permno').alias('ibq_new')
+    (pl.col('jdate') - pl.col('rdq_temp')).dt.total_days().alias('ibq_diff')
 ])
 ccm1 = ccm1.rename({'ibq': 'ibq_old'})  # original ibq
 '''
@@ -1419,7 +1462,7 @@ data_rawq = data_rawq.with_columns([
     ffi49().alias('ffi49')
 ])
 data_rawq = data_rawq.with_columns([
-    pl.col('ffi49').fill_null(49).cast(pl.Int64).alias('ffi49')
+    pl.col('ffi49').fill_nan(None).fill_null(49).cast(pl.Int64).alias('ffi49')
 ])
 #######################################################################################################################
 #                                                   Quarterly Variables                                               #
@@ -1492,56 +1535,32 @@ data_rawq = data_rawq.with_columns([
 # acc
 data_rawq = data_rawq.with_columns([
     pl.col('actq').shift(4).over('permno').alias('actq_l4'),
-    pl.col('lctq').shift(4).over('permno').alias('lctq_l4')
-])
-
-# data_rawq['npq_l4'] = data_rawq.groupby(['permno'])['npq'].shift(4)
-# condlist = [data_rawq['npq'].isnull(),
-#             data_rawq['actq'].isnull() | data_rawq['lctq'].isnull()]
-# choicelist = [((data_rawq['actq']-data_rawq['lctq'])-(data_rawq['actq_l4']-data_rawq['lctq_l4']))/(data_rawq['beq']),
-#               np.nan] ##### Delete "10*" on 2025.02.26 #####
-# data_rawq['acc'] = np.select(condlist, choicelist,
-#                           default=((data_rawq['actq']-data_rawq['lctq']+data_rawq['npq'])-
-#                                    (data_rawq['actq_l4']-data_rawq['lctq_l4']+data_rawq['npq_l4']))/(data_rawq['beq']))
-
-#################### Added Sloan(1996) or HXZ and GHZ operating accruals on 2025.02.28 ####################
-data_rawq = data_rawq.with_columns([
+    pl.col('lctq').shift(4).over('permno').alias('lctq_l4'),
     pl.col('cheq').shift(4).over('permno').alias('cheq_l4'),
     pl.col('dlcq').shift(4).over('permno').alias('dlcq_l4'),
     pl.col('txpq').shift(4).over('permno').alias('txpq_l4')
 ])
-# txpq is 0-filled; fill its lag to 0 as well (handles first 4 obs per firm)
+
+# Quarterly working-capital accrual component
 data_rawq = data_rawq.with_columns([
-    pl.col('txpq_l4').fill_null(0)
+    (
+        (pl.col('actq') - pl.col('cheq') - pl.col('lctq') + pl.col('dlcq') + pl.col('txpq'))
+        -
+        (pl.col('actq_l4') - pl.col('cheq_l4') - pl.col('lctq_l4') + pl.col('dlcq_l4') + pl.col('txpq_l4'))
+    ).alias('wcaptq')
 ])
 
-# (fixed-20260316) simplified quarterly oancfq fallback to match
-# `Global Factor Data Documentation.pdf` (p. 14): use OANCFQ first, then
-# IBQ + DPQ - WCAPTQ, and set WCAPTQ to 0 when unavailable. Reason: the
-# previous implementation reconstructed quarterly working-capital changes
-# directly, which was harder to audit and did not follow the documented
-# fallback hierarchy as closely as the source definition.
-# oancfq: CFS direct → balance-sheet fallback (ibq + dpq - wcaptq).
-# Both columns may be absent in CIZ comp_fundq; guard via Python ternary so no extra with_columns needed.
-_oancfq = pl.col('oancfq') if 'oancfq' in data_rawq.columns else pl.lit(None, dtype=pl.Float64)
-_wcaptq = pl.col('wcaptq') if 'wcaptq' in data_rawq.columns else pl.lit(0, dtype=pl.Float64)
-data_rawq = data_rawq.with_columns(
-    pl.coalesce([_oancfq, pl.col('ibq') + pl.col('dpq') - pl.coalesce([_wcaptq, pl.lit(0)])]).alias('oancfq')
-)
-
-# (fixed): if oancfq is not available, consider using oancfy to calculate quarterly oancfq: oancfy - oancfy_l4
+# Operating cash flow proxy
 data_rawq = data_rawq.with_columns([
-    pl.when(pl.col('oancfq').is_null())
-      .then(
-          ((pl.col('actq') - pl.col('actq_l4')) - (pl.col('cheq') - pl.col('cheq_l4')) -
-           (pl.col('lctq') - pl.col('lctq_l4')) + (pl.col('dlcq') - pl.col('dlcq_l4')) +
-           (pl.col('txpq') - pl.col('txpq_l4')) - pl.col('dpq')) / 
-          ((pl.col('atq') + pl.col('atq_l4')) / 2).replace(0, None)
-      )
-      .otherwise(
-          (pl.col('ibq') - pl.col('oancfq')) / ((pl.col('atq') + pl.col('atq_l4')) / 2).replace(0, None)
-      )
-      .alias('acc')
+    (pl.col('ibq') + pl.col('dpq') - pl.col('wcaptq')).alias('oancfq')
+])
+
+# Quarterly accruals
+data_rawq = data_rawq.with_columns([
+    (
+        (pl.col('ibq') - pl.col('oancfq')) /
+        ((pl.col('atq') + pl.col('atq_l4')) / 2).replace(0, None)
+    ).alias('acc')
 ])
 
 # absacc
@@ -1595,8 +1614,9 @@ data_rawq = data_rawq.with_columns([
 ])
 
 # chcsho
+# (fixed-20260325) guard against zero or near-zero lagged quarterly shares outstanding.
 data_rawq = data_rawq.with_columns([
-    ((pl.col('cshoq') / pl.col('cshoq_l4').replace(0, None)) - 1).alias('chcsho')
+    (safe_div(pl.col('cshoq'), pl.col('cshoq_l4')) - 1).alias('chcsho')
 ])
 
 # cashdebt
@@ -1631,33 +1651,9 @@ data_rawq = data_rawq.with_columns([
 
 #################### Follow Hafzalla, Lundholm, and Van Winkle (2011) and GHZ on 2025.02.28 ####################
 
-# # pctacc
-# condlist = [data_rawq['npq'].isnull(),
-#             data_rawq['actq'].isnull() | data_rawq['lctq'].isnull()]
-# choicelist = [((data_rawq['actq']-data_rawq['lctq'])-(data_rawq['actq_l4']-data_rawq['lctq_l4']))/abs(ttm4('ibq', data_rawq)), np.nan]
-# data_rawq['pctacc'] = np.select(condlist, choicelist,
-#                               default=((data_rawq['actq']-data_rawq['lctq']+data_rawq['npq'])-(data_rawq['actq_l4']-data_rawq['lctq_l4']+data_rawq['npq_l4']))/
-#                                       abs(ttm4('ibq', data_rawq)))
-
-# pctacc - using nested when/then/otherwise to replicate np.select behavior
-# (fixed, checked)2026-03-06: check 0.01
-# (fixed-20260316) redundant wcaptq fill_null and oancfq re-computation removed;
-# oancfq is already fully resolved above via pl.coalesce.
-
+# pctacc
 data_rawq = data_rawq.with_columns([
-    pl.when((pl.col('oancfq').is_null()) & (pl.col('ibq') == 0))
-      .then(
-          ((pl.col('actq') - pl.col('actq_l4')) - (pl.col('cheq') - pl.col('cheq_l4')) -
-           (pl.col('lctq') - pl.col('lctq_l4')) + (pl.col('dlcq') - pl.col('dlcq_l4')) +
-           (pl.col('txpq') - pl.col('txpq_l4')) - pl.col('dpq')) / 0.01
-      )
-      .when(pl.col('oancfq').is_null())
-      .then(
-          ((pl.col('actq') - pl.col('actq_l4')) - (pl.col('cheq') - pl.col('cheq_l4')) -
-           (pl.col('lctq') - pl.col('lctq_l4')) + (pl.col('dlcq') - pl.col('dlcq_l4')) +
-           (pl.col('txpq') - pl.col('txpq_l4')) - pl.col('dpq')) / pl.col('ibq').abs().replace(0, None)
-      )
-      .when(pl.col('ibq') == 0)
+    pl.when(pl.col('ibq') == 0)
       .then((pl.col('ibq') - pl.col('oancfq')) / 0.01)
       .otherwise((pl.col('ibq') - pl.col('oancfq')) / pl.col('ibq').abs().replace(0, None))
       .alias('pctacc')
@@ -1687,8 +1683,9 @@ data_rawq = data_rawq.with_columns([
 data_rawq = data_rawq.with_columns([
     pl.col('saleq4').shift(4).over('permno').alias('saleq4_l4')
 ])
+# (fixed-20260325) guard against zero or near-zero lagged trailing sales.
 data_rawq = data_rawq.with_columns([
-    ((pl.col('saleq4') / pl.col('saleq4_l4').replace(0, None)) - 1).alias('sgr')
+    (safe_div(pl.col('saleq4'), pl.col('saleq4_l4')) - 1).alias('sgr')
 ])
 
 # sp
@@ -1738,23 +1735,62 @@ data_rawq = data_rawq.with_columns([
 ])
 
 # chpm
+# (fixed-20260325) keep YoY change in quarterly profit margin, but guard against
+# near-zero current or lagged TTM sales. Reason: the main remaining pathology in
+# chpm is not the YoY design itself, but explosive differencing when either
+# saleq4 or saleq4_l4 is close to zero.
 data_rawq = data_rawq.with_columns([
-    pl.col('ibq4').shift(1).over('permno').alias('ibq4_l1'),
-    pl.col('saleq4').shift(1).over('permno').alias('saleq4_l1')
+    pl.col('ibq4').shift(4).over('permno').alias('ibq4_l4'),
+    pl.col('saleq4').shift(4).over('permno').alias('saleq4_l4')
+])
+data_rawq = data_rawq.with_columns([
+    pl.when(
+        (pl.col('saleq4').abs() < 1) |
+        (pl.col('saleq4_l4').abs() < 1)
+    )
+    .then(None)
+    .otherwise(
+        (pl.col('ibq4') / pl.col('saleq4')) -
+        (pl.col('ibq4_l4') / pl.col('saleq4_l4'))
+    )
+    .alias('chpm')
+])
+
+# noa
+# (fixed-20260316) document quarterly noa_raw explicitly as operating
+# assets minus operating liabilities before scaling.
+data_rawq = data_rawq.with_columns([
+    ((pl.col('atq') - pl.col('cheq')) -
+     (pl.col('atq') - pl.col('dlcq') - pl.col('dlttq') - pl.col('mibq') -
+      pl.col('pstkq') - pl.col('ceqq'))).alias('noa_raw')
 ])
 
 data_rawq = data_rawq.with_columns([
-    ((pl.col('ibq4') / pl.col('saleq4').replace(0, None)) - 
-     (pl.col('ibq4_l1') / pl.col('saleq4_l1').replace(0, None))).alias('chpm')
+    pl.col('noa_raw').shift(4).over('permno').alias('noa_raw_l4'),
+    pl.col('noa_raw').shift(8).over('permno').alias('noa_raw_l8')
+])
+
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('atq_l4') != 0)
+      .then(pl.col('noa_raw') / pl.col('atq_l4'))
+      .otherwise(None)
+      .alias('noa')
 ])
 
 # chato
+# (fixed-20260316) document quarterly noa_raw explicitly as operating
+# assets minus operating liabilities before scaling. Reason:
+# `OnlineAppendixOPCSAP.pdf` (p. 24) defines NOA as operating assets minus
+# operating liabilities, scaled by lagged total assets; `Global Factor Data
+# Documentation.pdf` (p. 14) likewise defines NOA as OA - OL. Here,
+# operating assets = atq - cheq, and operating liabilities =
+# atq - dlcq - dlttq - mibq - pstkq - ceqq, so noa_raw is the unscaled
+# dollar NOA used by noa, rna, and ato before scaling by atq_l4.
+# (fixed-20260325) use NOA-based turnover change for quarterly chato so the
+# denominator is consistent with annual chato and with quarterly rna / ato.
 data_rawq = data_rawq.with_columns([
-    pl.col('atq').shift(8).over('permno').alias('atq_l8')
-])
-data_rawq = data_rawq.with_columns([
-    ((pl.col('saleq4') / ((pl.col('atq') + pl.col('atq_l4')) / 2).replace(0, None)) - 
-     (pl.col('saleq4_l4') / ((pl.col('atq_l4') + pl.col('atq_l8')) / 2).replace(0, None))).alias('chato')
+    ((pl.col('saleq4') / ((pl.col('noa_raw') + pl.col('noa_raw_l4')) / 2).replace(0, None)) -
+     (pl.col('saleq4_l4') / ((pl.col('noa_raw_l4') + pl.col('noa_raw_l8')) / 2).replace(0, None))).alias('chato')
 ])
 
 # chatoia
@@ -1767,34 +1803,14 @@ data_rawq = data_rawq.with_columns([
     (pl.col('chato') - pl.col('chato_ind')).alias('chatoia')
 ])
 
-# noa
-# (fixed-20260316) document quarterly noa_raw explicitly as operating
-# assets minus operating liabilities before scaling. Reason:
-# `OnlineAppendixOPCSAP.pdf` (p. 24) defines NOA as operating assets minus
-# operating liabilities, scaled by lagged total assets; `Global Factor Data
-# Documentation.pdf` (p. 14) likewise defines NOA as OA - OL. Here,
-# operating assets = atq - cheq, and operating liabilities =
-# atq - dlcq - dlttq - mibq - pstkq - ceqq, so noa_raw is the unscaled
-# dollar NOA used by noa, rna, and ato before scaling by atq_l4.
-data_rawq = data_rawq.with_columns([
-    ((pl.col('atq') - pl.col('cheq')) -
-     (pl.col('atq') - pl.col('dlcq') - pl.col('dlttq') - pl.col('mibq') -
-      pl.col('pstkq') - pl.col('ceqq'))).alias('noa_raw')
-])
-data_rawq = data_rawq.with_columns([
-    pl.when(pl.col('atq_l4') != 0)
-      .then(pl.col('noa_raw') / pl.col('atq_l4'))
-      .otherwise(None)
-      .alias('noa')
-])
-
 # rna
 # (fix)2026-02-27: use noa_raw (unscaled) as denominator instead of noa (scaled by atq_l4)
 data_rawq = data_rawq.with_columns([
     pl.col('noa_raw').shift(4).over('permno').alias('noa_raw_l4')
 ])
+# (fixed-20260325) guard against zero or near-zero lagged NOA.
 data_rawq = data_rawq.with_columns([
-    (pl.col('oiadpq') / pl.col('noa_raw_l4').replace(0, None)).alias('rna')
+    safe_div(pl.col('oiadpq'), pl.col('noa_raw_l4')).alias('rna')
 ])
 
 # pm
@@ -1804,8 +1820,9 @@ data_rawq = data_rawq.with_columns([
 
 # ato
 # (fix)2026-02-27: use noa_raw (unscaled) as denominator instead of noa (scaled by atq_l4)
+# (fixed-20260325) guard against zero or near-zero lagged NOA.
 data_rawq = data_rawq.with_columns([
-    (pl.col('saleq') / pl.col('noa_raw_l4').replace(0, None)).alias('ato')
+    safe_div(pl.col('saleq'), pl.col('noa_raw_l4')).alias('ato')
 ])
 
 # roe
@@ -1825,20 +1842,43 @@ data_rawq = data_rawq.with_columns([
     pl.col('apq').shift(4).over('permno').alias('apq_l4'),
     pl.col('lcoq').shift(4).over('permno').alias('lcoq_l4'),
     pl.col('loq').shift(4).over('permno').alias('loq_l4'),
-    pl.col('intanq').shift(4).over('permno').alias('intanq_l4'),
-    pl.col('aoq').shift(4).over('permno').alias('aoq_l4')
-    # Note: invtq_l4, ppentq_l4, atq_l4 already exist from earlier calculations
+    pl.col('aoq').shift(4).over('permno').alias('aoq_l4'),
+    pl.col('invtq').shift(4).over('permno').alias('invtq_l4'),
+    pl.col('ppentq').shift(4).over('permno').alias('ppentq_l4'),
+    pl.col('intanq').shift(4).over('permno').alias('intanq_l4')
 ])
 
+# LTNOA_t and LTNOA_{t-1} using quarterly fields
 data_rawq = data_rawq.with_columns([
     (
+        pl.col('rectq') + pl.col('invtq') + pl.col('ppentq') +
+        pl.col('acoq') + pl.col('intanq') + pl.col('aoq') -
+        pl.col('apq') - pl.col('lcoq') - pl.col('loq')
+    ).alias('ltnoaq_t'),
+    (
+        pl.col('rectq_l4') + pl.col('invtq_l4') + pl.col('ppentq_l4') +
+        pl.col('acoq_l4') + pl.col('intanq_l4') + pl.col('aoq_l4') -
+        pl.col('apq_l4') - pl.col('lcoq_l4') - pl.col('loq_l4')
+    ).alias('ltnoaq_l4')
+])
+# Working-capital operating accrual component
+data_rawq = data_rawq.with_columns([
+    (
+        (pl.col('rectq') - pl.col('rectq_l4')) +
+        (pl.col('invtq') - pl.col('invtq_l4')) +
+        (pl.col('acoq') - pl.col('acoq_l4')) -
         (
-            (pl.col('rectq') + pl.col('invtq') + pl.col('ppentq') + pl.col('acoq') + pl.col('intanq') + pl.col('aoq') - pl.col('apq') - pl.col('lcoq') - pl.col('loq')) -
-            (pl.col('rectq_l4') + pl.col('invtq_l4') + pl.col('ppentq_l4') + pl.col('acoq_l4') + pl.col('intanq_l4') + pl.col('aoq_l4') - pl.col('apq_l4') - pl.col('lcoq_l4') - pl.col('loq_l4')) -
-            (pl.col('rectq') - pl.col('rectq_l4') + pl.col('invtq') - pl.col('invtq_l4') + pl.col('acoq') - pl.col('acoq_l4') - 
-             (pl.col('apq') - pl.col('apq_l4') + pl.col('lcoq') - pl.col('lcoq_l4')) -
-             ttm4('dpq', data_rawq))
-        ) / ((pl.col('atq') + pl.col('atq_l4')) / 2).replace(0, None)
+            (pl.col('apq') - pl.col('apq_l4')) +
+            (pl.col('lcoq') - pl.col('lcoq_l4'))
+        )
+    ).alias('wcnoaq_change')
+])
+# Quarterly version: same structure, using t and t-4 assets
+data_rawq = data_rawq.with_columns([
+    (
+        (pl.col('ltnoaq_t') / pl.col('atq').replace(0, None)) -
+        (pl.col('ltnoaq_l4') / pl.col('atq_l4').replace(0, None)) -
+        (pl.col('wcnoaq_change') / ((pl.col('atq') + pl.col('atq_l4')) / 2).replace(0, None))
     ).alias('grltnoa')
 ])
 
@@ -1958,8 +1998,9 @@ data_rawq = data_rawq.with_columns([
 ])
 
 # Calculate cinvest for normal case
+# (fixed-20260325) guard against zero or near-zero sales in cinvest scaling.
 data_rawq = data_rawq.with_columns([
-    (((pl.col('ppentq') - pl.col('ppentq_l1')) / pl.col('saleq').replace(0, None)) -
+    ((safe_div(pl.col('ppentq') - pl.col('ppentq_l1'), pl.col('saleq'))) -
      pl.concat_list(['c_temp1', 'c_temp2', 'c_temp3']).list.mean()).alias('cinvest')
 ])
 
@@ -2160,10 +2201,14 @@ crsp_mom = crsp_mom.with_columns([
 crsp_mom = crsp_mom.with_columns([
     (pl.col('vol_l2') * pl.col('prc_l2')).log()
         .replace([float('inf'), float('-inf')], None).alias('dolvol'),
-    ((pl.col('vol_l1') + pl.col('vol_l2') + pl.col('vol_l3')) / 3 / 1000 / pl.col('shrout').replace(0, None)).alias('turn'),
+    # (fixed-20260325) cast turn to Float64 at creation time so monthly share
+    # turnover keeps fractional precision and is not written as an integer-scale Decimal.
+    (((pl.col('vol_l1') + pl.col('vol_l2') + pl.col('vol_l3')).cast(pl.Float64) / 3.0 / 1000.0) /
+     pl.col('shrout').cast(pl.Float64).replace(0, None)).cast(pl.Float64).alias('turn'),
     pl.col('me').shift(1).over('permno').alias('me_l1'),
     (pl.col('ret') - pl.col('retx')).alias('retdy')
 ])
+
 
 # (fixed-20260316) JKP: div1m_me = (ret - retx) * prc_l1 * (cfacshr_t / cfacshr_l1) * shares_t
 # Uses current shrout adjusted by cfacshr ratio so that share issuances and stock
@@ -2223,13 +2268,11 @@ crsp_mom = (crsp_mom
 data_rawa = data_rawa.drop(['date', 'ret', 'retx', 'me', 'vol', 'permco', 'prc', 'shrout'], strict=False)
 data_rawa = crsp_mom.join(data_rawa, on=['permno', 'jdate'], how='left')
 data_rawa = data_rawa.sort(['permno', 'jdate'])
+
 # (fixed-20260316) forward_fill datadate over permno is correct.
 # After left-join with monthly crsp_mom, most monthly rows have null datadate (no matching
 # fiscal-year report). Forward_fill carries the most recent datadate forward within each
 # permno until the next report arrives — standard stale-accounting practice.
-# Verified: typical n_months ~12 per fiscal period; larger values (e.g. 48 months for
-# permno=10002 datadate=2003-12-31) reflect genuine Compustat annual coverage gaps, not a bug.
-# Total monthly rows in data_rawa after join: 3,705,263.
 data_rawa = data_rawa.with_columns([
     pl.col('datadate').forward_fill().over('permno')
 ])
@@ -2248,6 +2291,31 @@ data_rawa = data_rawa.with_columns([
 #     (pl.col('tradingstatusflg') == 'A')
 # )
 
+# (fixed-20260325) clear stale annual carried fundamentals before downstream recomputation.
+# Use a tighter annual stale window than the old 18-month blanket carry rule.
+annual_stale = (
+    pl.col('jdate') > pl.col('datadate').dt.offset_by('16mo').dt.month_end()
+).fill_null(False)
+
+annual_stale_raw_cols = [
+    'datadate',
+    'sale', 'revt', 'cogs', 'xsga', 'xint', 'ib', 'ni', 'oancf', 'dp',
+    'act', 'lct', 'che', 'invt', 'rect', 'aco', 'intan', 'ao',
+    'ppent', 'gdwl', 'fatb', 'fatl',
+    'dlc', 'dltt', 'lt', 'dm', 'dc', 'ap', 'lco', 'lo',
+    'drc', 'drlt', 'txdi', 'txditc', 'txp',
+    'ceq', 'pstk', 'pstkrv', 'pstkl', 'seq', 'mib',
+    'ivao', 'gdwlia', 'gdwlip', 'gwo',
+    'capx', 'dvt', 'ob', 'emp', 'csho', 'ajex', 'prcc_f',
+    'xrd', 'xad', 'np',
+    'mve_f', 'dr', 'be'
+]
+
+data_rawa = data_rawa.with_columns([
+    pl.when(annual_stale).then(None).otherwise(pl.col(c)).alias(c)
+    for c in annual_stale_raw_cols if c in data_rawa.columns
+])
+
 # data_rawq
 data_rawq = data_rawq.drop(['date', 'ret', 'retx', 'me', 'vol', 'permco', 'prc', 'shrout'], strict=False)
 data_rawq = crsp_mom.join(data_rawq, on=['permno', 'jdate'], how='left')
@@ -2255,6 +2323,8 @@ data_rawq = data_rawq.sort(['permno', 'jdate'])
 data_rawq = data_rawq.with_columns([
     pl.col('datadate').forward_fill().over('permno')
 ])
+
+
 # (fixed): check-处理pandas才加入的datadate1和permno1，polars不需要，可以直接用datadate和permno
 # data_rawq = data_rawq.with_columns([
 #     pl.col('permno').alias('permno1'),
@@ -2263,11 +2333,29 @@ data_rawq = data_rawq.with_columns([
 data_rawq = data_rawq.with_columns([
     pl.all().forward_fill().over(['permno', 'datadate'])
 ])
-data_rawq = data_rawq.filter(
-    (pl.col('primaryexch').is_in(['N', 'A', 'Q'])) &
-    (pl.col('conditionaltype') == 'RW') &
-    (pl.col('tradingstatusflg') == 'A')
-)
+
+# (fixed-20260325) clear stale quarterly carried fundamentals before downstream recomputation.
+# Quarterly accounting data should expire much sooner than annual data.
+quarterly_stale = (
+    pl.col('jdate') > pl.col('datadate').dt.offset_by('6mo').dt.month_end()
+).fill_null(False)
+
+quarterly_stale_raw_cols = [
+    'datadate',
+    'ibq', 'saleq', 'txtq', 'revtq', 'cogsq', 'xsgaq',
+    'saley', 'atq', 'actq', 'cheq', 'lctq', 'dlcq', 'ppentq', 'ppegtq',
+    'txpq', 'prccq', 'mveq_f', 'ceqq', 'seqq', 'pstkq', 'ltq', 'pstkrq',
+    'gdwlq', 'intanq', 'mibq', 'oiadpq', 'ajexq', 'cshoq', 'txditcq',
+    'npq', 'xrdy', 'xrdq', 'dpq', 'xintq', 'invtq', 'scstkcy', 'niq',
+    'oancfy', 'wcapq', 'dlttq', 'rectq', 'acoq', 'apq', 'lcoq', 'loq', 'aoq',
+    'epspxq', 'rdq',
+    'beq'
+]
+
+data_rawq = data_rawq.with_columns([
+    pl.when(quarterly_stale).then(None).otherwise(pl.col(c)).alias(c)
+    for c in quarterly_stale_raw_cols if c in data_rawq.columns
+])
 
 #######################################################################################################################
 #                                                    Monthly ME                                                       #
@@ -2351,8 +2439,12 @@ data_rawa = data_rawa.with_columns([
 # ])
 
 # cashpr
+# (fixed-20260325) guard against zero or near-zero cash balance.
 data_rawa = data_rawa.with_columns([
-    ((pl.col('me') + pl.col('dltt') - pl.col('at')) / pl.col('che').replace(0, None)).alias('cashpr')
+    safe_div(
+        pl.col('me') + pl.col('dltt') - pl.col('at'),
+        pl.col('che')
+    ).alias('cashpr')
 ])
 
 # indmom
@@ -2474,8 +2566,12 @@ data_rawq = data_rawq.with_columns([
 ])
 
 # cashpr
+# (fixed-20260325) guard against zero or near-zero quarterly cash balance.
 data_rawq = data_rawq.with_columns([
-    ((pl.col('me') + pl.col('dlttq') - pl.col('atq')) / pl.col('cheq').replace(0, None)).alias('cashpr')
+    safe_div(
+        pl.col('me') + pl.col('dlttq') - pl.col('atq'),
+        pl.col('cheq')
+    ).alias('cashpr')
 ])
 
 # indmom
