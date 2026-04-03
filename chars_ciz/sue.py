@@ -55,7 +55,7 @@ ccm2 = ccm2.with_columns([
     pl.col("eps").cum_count().over("permno").alias("count")
 ])
 
-# Create lag variables e1 to e8
+# Create lag variables e1 to e12
 ccm2 = ccm2.with_columns([
     pl.col("eps").shift(1).over("permno").alias("e1"),
     pl.col("eps").shift(2).over("permno").alias("e2"),
@@ -65,20 +65,36 @@ ccm2 = ccm2.with_columns([
     pl.col("eps").shift(6).over("permno").alias("e6"),
     pl.col("eps").shift(7).over("permno").alias("e7"),
     pl.col("eps").shift(8).over("permno").alias("e8"),
+    pl.col("eps").shift(9).over("permno").alias("e9"),
+    pl.col("eps").shift(10).over("permno").alias("e10"),
+    pl.col("eps").shift(11).over("permno").alias("e11"),
+    pl.col("eps").shift(12).over("permno").alias("e12"),
+])
+
+# Compute YoY differences: e{i}_diff = e{i} - e{i+4}
+# Matches SIZ: std is computed on 4-quarter EPS differences, not raw levels
+ccm2 = ccm2.with_columns([
+    (pl.col(f"e{i}") - pl.col(f"e{i+4}")).alias(f"e{i}_diff")
+    for i in range(1, 9)
 ])
 
 # Calculate sue_std based on count
-# Using row-wise std with handling for all-equal values
-cols_6 = ["e8", "e7", "e6", "e5", "e4", "e3"]
-cols_7 = ["e8", "e7", "e6", "e5", "e4", "e3", "e2"]
-cols_8 = ["e8", "e7", "e6", "e5", "e4", "e3", "e2", "e1"]
+# Using row-wise std on YoY differences, requires >= 6 non-null values
+cols_6 = ["e6_diff", "e5_diff", "e4_diff", "e3_diff", "e2_diff", "e1_diff"]
+cols_7 = ["e7_diff", "e6_diff", "e5_diff", "e4_diff", "e3_diff", "e2_diff", "e1_diff"]
+cols_8 = ["e8_diff", "e7_diff", "e6_diff", "e5_diff", "e4_diff", "e3_diff", "e2_diff", "e1_diff"]
 
-def std_with_zero_handling(cols):
-    """Row-wise std, returns 0 if all values equal."""
+def std_with_zero_handling(cols, min_valid=6):
+    """Row-wise std of YoY EPS differences; returns None if < min_valid non-null, 0 if all equal."""
     concat_expr = pl.concat_list(cols)
+    valid_count = concat_expr.list.eval(pl.element().is_not_null().cast(pl.Int32).sum()).list.first()
     all_equal = concat_expr.list.max() == concat_expr.list.min()
     std_val = concat_expr.list.eval(pl.element().std()).list.first()
-    return pl.when(all_equal).then(0.0).otherwise(std_val)
+    return (
+        pl.when(valid_count < min_valid).then(pl.lit(None, dtype=pl.Float64))
+        .when(all_equal).then(pl.lit(0.0))
+        .otherwise(std_val)
+    )
 
 ccm2 = ccm2.with_columns([
     pl.when(pl.col("count") <= 6).then(None)
