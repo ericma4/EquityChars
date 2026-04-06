@@ -59,7 +59,6 @@ M_VARS = [
     'me', 'dy', 'turn', 'dolvol', 'indmom',
 ]
 
-Q_MONTHLY_ONLY_VARS = ['dy']
 
 # =====================================================================
 #  Helpers
@@ -100,7 +99,7 @@ def _reconcile(df_a, df_q):
     )
 
     # --- quarterly side: obs + accounting + q_only + quarterly-only monthly vars ---
-    q_cols = _available_cols(df_q, OBS_VARS + ACCOUNTING_VARS + Q_ONLY_VARS + Q_MONTHLY_ONLY_VARS)
+    q_cols = _available_cols(df_q, OBS_VARS + ACCOUNTING_VARS + Q_ONLY_VARS)
     q_drop = [c for c in OBS_VARS if c not in ('gvkey', 'permno', 'jdate')]
     df_q_sel = (
         df_q.select(q_cols)

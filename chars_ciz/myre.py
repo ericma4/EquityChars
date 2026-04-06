@@ -4,14 +4,6 @@
 import polars as pl
 from functions import INPUT_PATH, OUTPUT_PATH
 
-def safe_div(num, denom, eps=1e-6):
-    """Return num / denom, but null out zero or near-zero denominators."""
-    return (
-        pl.when(denom.is_not_null() & (denom.abs() > eps))
-          .then(num / denom)
-          .otherwise(None)
-    )
-
 #########################################################################
 # Merging IBES and CRSP by using ICLINK table. Merging last month price #
 #########################################################################
@@ -77,19 +69,14 @@ ibes_crsp = ibes_crsp.sort(['ticker', 'permno', 'fpedats', 'statpers'])
 ibes_crsp = ibes_crsp.filter(pl.col('statpers_last_month').is_not_null())
 
 # Calculate adjusted price and monthly revision
-# (fixed-20260325) guard against zero or near-zero adjustment factor.
 ibes_crsp = ibes_crsp.with_columns([
-    safe_div(pl.col('prc'), pl.col('cfacpr')).alias('prc_adj')
+    (pl.col('prc') / pl.col('cfacpr')).alias('prc_adj')
 ])
 
 ibes_crsp = ibes_crsp.filter(pl.col('prc_adj') > 0)
 
 ibes_crsp = ibes_crsp.with_columns([
-    # (fixed-20260325) guard against zero or near-zero adjusted price in monthly revision.
-    safe_div(
-        pl.col('meanest') - pl.col('meanest_last_month'),
-        pl.col('prc_adj')
-    ).alias('monthly_revision')
+    ((pl.col('meanest') - pl.col('meanest_last_month')) / pl.col('prc_adj')).alias('monthly_revision')
 ])
 
 # Create permno_fpedats identifier
