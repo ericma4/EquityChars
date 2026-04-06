@@ -421,7 +421,7 @@ def compute_all_rolling_chars(input_path, output_path, n_months=3, min_obs=21):
         (std_turn, "std_turn"),
         (zerotrade, "zerotrade"),
         (ill, "ill"),
-        (beta_ff5, "beta_ff5"),
+        # (beta_ff5, "beta_ff5"),
         (rvar_ff3, "rvar_ff3"),
     ]
     

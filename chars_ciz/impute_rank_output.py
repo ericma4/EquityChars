@@ -48,7 +48,7 @@ A_ONLY_VARS = [
 
 Q_ONLY_VARS = [
     'abr', 'sue', 'cinvest', 'nincr', 'pscore',
-    'roavol', 'stdacc', 'stdcf',
+    'roavol',
 ]
 
 M_VARS = [
@@ -69,12 +69,15 @@ def _available_cols(df, cols):
 
 
 def _replace_inf(df):
-    """Replace ±inf with null in all float columns."""
+    """Replace ±inf and NaN with null in all float columns."""
     float_cols = [c for c in df.columns if df[c].dtype in (pl.Float32, pl.Float64)]
     if not float_cols:
         return df
     return df.with_columns([
-        pl.when(pl.col(c).is_infinite()).then(None).otherwise(pl.col(c)).alias(c)
+        pl.when(pl.col(c).is_infinite() | pl.col(c).is_nan())
+          .then(None)
+          .otherwise(pl.col(c))
+          .alias(c)
         for c in float_cols
     ])
 
@@ -95,7 +98,7 @@ def _reconcile(df_a, df_q):
         {v: a_prefix[v] for v in ACCOUNTING_VARS if v in a_cols}
     )
 
-    # --- quarterly side: obs + accounting + q_only ---
+    # --- quarterly side: obs + accounting + q_only + quarterly-only monthly vars ---
     q_cols = _available_cols(df_q, OBS_VARS + ACCOUNTING_VARS + Q_ONLY_VARS)
     q_drop = [c for c in OBS_VARS if c not in ('gvkey', 'permno', 'jdate')]
     df_q_sel = (
@@ -162,10 +165,14 @@ def _rank_df(df):
         )
     out = standardize(out)
     out = out.with_columns(pl.col('lag_me').log().alias('log_me'))
-    # ±inf → 0, rank nulls → 0
+    # (fixed-20260325) convert both NaN and ±inf to 0 after standardization so
+    # rank-stage float cleanup matches _replace_inf().
     float_cols = [c for c in out.columns if out[c].dtype in (pl.Float32, pl.Float64)]
     out = out.with_columns([
-        pl.when(pl.col(c).is_infinite()).then(pl.lit(0)).otherwise(pl.col(c)).alias(c)
+        pl.when(pl.col(c).is_infinite() | pl.col(c).is_nan())
+        .then(pl.lit(0))
+        .otherwise(pl.col(c))
+        .alias(c)
         for c in float_cols
     ])
     rank_cols = [c for c in out.columns if c.startswith('rank_')]
@@ -262,6 +269,3 @@ if __name__ == '__main__':
     df_rank_imp = _rank_df(df_impute)
     print("Saving chars_rank_imputed.parquet ...", flush=True)
     df_rank_imp.write_parquet(OUTPUT_PATH + 'chars_rank_imputed.parquet')
-
-    print("Done.", flush=True)
-    print(f"  Final columns ({len(df.columns)}): {df.columns}")

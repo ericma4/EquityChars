@@ -197,3 +197,8 @@ cython_debug/
 wrds/
 
 *.parquet
+*.md
+*.csv
+*.xlsx
+*.png
+*.pdf
