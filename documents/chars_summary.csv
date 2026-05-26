@@ -93,8 +93,6 @@ sin,Sin stocks,Hong and Kacperczyk,2009,Investment
 sp,Sales-to-price,"Barbee, Mukherji, and Raines",1996,Value-versus-growth
 std_dolvol,Std. of dollar trading volume rolling 3m,"Chordia, Subrahmanyam, and Anshuman",2001,Trading frictions 
 std_turn,Std. of Share turnover rolling 3m,"Chordia, Subrahmanyam, and Anshuman",2001,Trading frictions 
-stdacc,Accrual volatility,"Bandyopadhyay, Huang, and Wirjanto",2010,Investment
-stdcf,Cash flow volatility,Huang,2009,Intangibles
 sue,Unexpected quarterly earnings,"Rendelman, Jones, and Latane",1982,Momentum 
 tang,Debt capacity or firm tangibility,Almeida and Campello,2007,Intangibles
 tb,Tax income to book income,Lev and Nissim,2004,Profitability

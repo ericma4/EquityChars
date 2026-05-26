@@ -2378,7 +2378,7 @@ chars_a = data_rawa.select(['cusip_comp', 'cusip_crsp', 'hdrcusip', 'gvkey', 'pe
                      'salecash', 'salerec', 'saleinv', 'pchsaleinv', 'realestate', 'obklg', 'chobklg', 'grltnoa',
                      'conv', 'chdrc', 'rdbias', 'operprof', 'capxint', 'xadint', 'chpm', 'ala', 'alm',
                      'mom1m', 'mom6m', 'mom12m', 'mom60m', 'mom36m', 'seas1a', 'me', 'size_grp', 'hire', 'herf', 'bm_ia',
-                     'me_ia', 'turn', 'dolvol', 'absacc', 'age', 'cashpr', 'chatoia', 'chempia', 'chmom', 'chpmia',
+                     'me_ia', 'turn', 'dolvol', 'dy', 'absacc', 'age', 'cashpr', 'chatoia', 'chempia', 'chmom', 'chpmia',
                      'convind', 'divi', 'divo', 'secured', 'securedind', 'sin', 'cfp_ia', 'indmom', 'pchcapx_ia',
                      'tang', 'tb', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6'])
 
