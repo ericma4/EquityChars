@@ -85,7 +85,7 @@ ABR & 过期季度仍使用 & 12 个月；不查 rdq & 6 个月；\texttt{rdq > 
 RE & 滞后顺序被打乱 & \texttt{unique()} 后乱序 \texttt{shift} & 按日历月匹配 & HXZ A.1.3 & 秩相关仅 0.31 \\
  & 混入下一财年预测 & FPI 1 与 2 & 只用 FPI = 1 & HXZ A.1.3 & 10.2\% 行 \\
  & 窗口晚一个月；求平均 & 滞后 1--6，均值 & 滞后 0--5，求和，$\ge 4$ 项 & HXZ A.1.3 & 全部 \\
- & 年末后 FY1 被下载条件丢掉 & \texttt{fpedats >= statpers} & 删除该条件（需重新下载 \texttt{ibes}） & HXZ A.1.3 & 约 12\% 月份 \\
+ & 年末后 FY1 被下载条件丢掉 & \texttt{fpedats >= statpers} & 删除该条件（\texttt{ibes} 已重新下载） & HXZ A.1.3 & RE 覆盖 +84\%；1--5 月由每月约 3 千增至约 2.5 万 \\
 \addlinespace
 财务滞后 & 跨公司、跨缺失期 & \texttt{shift(k).over('permno')} & \texttt{lag()}：同 gvkey、相隔 $k$ 期 & JKP & 约 1\% 行；早期覆盖反增 \\
 NI & 缺历史股数时补 0 & $\log(\text{股数})-0$ & 置空 & HXZ A.3.10 & 7.5\% 行 \\
