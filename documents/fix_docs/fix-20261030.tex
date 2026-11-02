@@ -1,8 +1,8 @@
 % !TeX program = xelatex
 % Compile from documents/fix_docs/: xelatex -interaction=nonstopmode -halt-on-error fix-20261030.tex
-% Compact layout only: all examples, formulas, code and numerical results retained.
-% Evidence: ../data/processed_20261030/audit/ (calculation inputs and validation JSON).
-% Before = saved baseline for each correction; After = data/processed_20261030.
+% Before = main; After = fix-20261030.
+% Numbers come from two small samples rebuilt with the same raw files:
+%   2015-2021 (with 2012-2014 as history) and 1968-1975 (around the 1972 RDQ switch).
 \documentclass[UTF8,a4paper,10pt,fontset=fandol]{ctexart}
 \usepackage[left=16mm,right=16mm,top=13mm,bottom=13mm,headheight=14pt]{geometry}
 \usepackage{graphicx}
@@ -15,7 +15,6 @@
 \setmonofont{lmmono10-regular.otf}[Scale=1]
 \newcommand{\bodyfont}{\fontsize{9.8}{15}\selectfont}
 \newcommand{\tablefont}{\fontsize{9.2}{14}\selectfont}
-\newcommand{\notefont}{\fontsize{9.2}{14}\selectfont}
 \newcommand{\codefont}{\fontsize{8.5}{13.2}\selectfont}
 \newcommand{\rateline}[2]{\par\noindent\hangindent=5em\hangafter=1\makebox[5em][l]{\textbf{#1}}#2\par}
 \newcommand{\ratecompare}[4]{\par\noindent
@@ -40,1276 +39,385 @@
  colframe=CodeBorder,colback=CodeBackground,
  boxrule=0.4pt,arc=1mm,left=2mm,right=2mm,top=0.7mm,bottom=0.7mm,
  boxsep=0pt,before skip=0pt,after skip=0pt}
-% Keep all examples and data; reduce only layout glue.
-\setlength{\medskipamount}{1pt plus 0.5pt minus 0.5pt}
-\setlength{\smallskipamount}{0.5pt plus 0.5pt minus 0.5pt}
+\setlength{\medskipamount}{3pt plus 1pt minus 1pt}
+\setlength{\smallskipamount}{1.5pt plus 0.5pt minus 0.5pt}
 \setlength{\aboverulesep}{0.2ex}
 \setlength{\belowrulesep}{0.2ex}
 \raggedbottom
 \clubpenalty=10000
 \widowpenalty=10000
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{1pt}
-\setlist[itemize]{leftmargin=1.5em,itemsep=0pt,topsep=1pt,parsep=0pt}
-\linespread{1.0}
-\renewcommand{\arraystretch}{1.0}
+\setlength{\parskip}{3pt}
+\setlist[itemize]{leftmargin=1.5em,itemsep=1pt,topsep=2pt,parsep=0pt}
 \ctexset{
- section={format=\normalfont\fontsize{12.5}{16}\selectfont\bfseries,beforeskip=18pt,afterskip=8pt},
- subsection={format=\normalfont\fontsize{10.8}{14}\selectfont\bfseries,beforeskip=12pt,afterskip=6pt},
- paragraph={runin=false,format=\normalfont\bfseries,beforeskip=10pt,afterskip=5pt}}
+ section={format=\normalfont\fontsize{12.5}{16}\selectfont\bfseries,beforeskip=16pt,afterskip=6pt},
+ subsection={format=\normalfont\fontsize{10.8}{14}\selectfont\bfseries,beforeskip=10pt,afterskip=4pt}}
 \pagestyle{fancy}
 \fancyhf{}
-
-
-\fancyfoot[C]{\notefont\thepage}
+\fancyfoot[C]{\tablefont\thepage}
 \renewcommand{\headrulewidth}{0pt}
 \hypersetup{pdftitle={20261030 指标修复说明},pdfauthor={}}
 \begin{document}
 \bodyfont
 \setlength{\abovedisplayskip}{3pt}\setlength{\belowdisplayskip}{3pt}
-\setlength{\abovedisplayshortskip}{2pt}\setlength{\belowdisplayshortskip}{2pt}
 {\fontsize{18}{24}\selectfont\bfseries 20261030 指标修复说明}\par
-\vspace{10pt}
+\vspace{6pt}
 
-\begingroup
-\tablefont
-\setlength{\tabcolsep}{3pt}
+这份说明只记录真正需要改的地方。每一项都能在 HXZ（Hou, Xue \& Zhang 2020）、GHZ（Green, Hand \& Zhang 2017）或 JKP（Jensen, Kelly \& Pedersen 2023）中找到依据；超出文献要求、只是``以防万一''的逻辑都已撤回，理由集中放在第十节。
+
+所有数字来自两段小样本，原始数据与 main 完全相同：\textbf{2015--2021 年}（另取 2012--2014 年作历史）和\textbf{1968--1975 年}（跨过 1972 年 RDQ 开始普及的节点）。``修复前''指 main，``修复后''指本分支。
+
+\begingroup\tablefont\setlength{\tabcolsep}{3pt}
 \begin{tabularx}{\linewidth}{@{}*{6}{>{\raggedright\arraybackslash}X}@{}}
 \toprule
-\texttt{datadate} & \texttt{rdq} & \texttt{jdate} & \texttt{date} & \texttt{fyearq} & \texttt{fqtr} \\
+\texttt{datadate} & \texttt{rdq} & \texttt{jdate} & \texttt{date} & \texttt{fpedats} & \texttt{statpers} \\
 \midrule
-财务期间截止日\newline（Compustat） & 季度盈利公告日\newline（Compustat） & 形成月末\newline（代码生成） & 收益月末\newline（代码生成） & 公司财年\newline（Compustat） & 财年内季度\newline（Compustat） \\
+财务期末 & 盈利公告日 & 形成月末 & 收益月末 & 预测目标财年末 & IBES 快照日 \\
 \bottomrule
-\end{tabularx}
-\endgroup
+\end{tabularx}\endgroup
 
-\par\medskip
-\Needspace{16mm}
-\section*{一、SUE}
-\subsection*{形成月与公告日}
+\blocktitle{一览}
+\begingroup\tablefont\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X l l@{}}
+\toprule
+指标 & 问题 & 依据 & 影响（2015--2021） \\
+\midrule
+SUE & 公告前就被使用；窗口 12 个月；1972 年前没有滞后 & HXZ A.1.1 & 46\% 的行提前使用 \\
+ABR & 窗口 12 个月；未剔除公告日早于季末的记录 & HXZ A.1.2 & 4\% 的行过期 \\
+RE & 混入 FY2；滞后顺序被打乱；窗口晚一个月 & HXZ A.1.3 & 与正确值秩相关仅 0.31 \\
+财务滞后 & 按行 shift，可跨公司、跨缺失期 & JKP & 约 1\% 的行 \\
+NI & 缺历史股数时补 0，得到 $\log(\text{股数})$ & HXZ A.3.10 & 7\% 的行 \\
+季度 ROA & 拿下季盈利配本季资产 & HXZ A.4.3 & ROA/EP/ROE 约半数行 \\
+CINVEST & 不足四个前季也照算 & GHZ & 4\% 的行 \\
+age & 计数早于去重排序，年龄会倒退 & GHZ & 13,695 次倒退 \\
+其他 & 下月收益、TTM12、月度股息 & JKP & 极少 \\
+\bottomrule
+\end{tabularx}\endgroup
+
+%======================================================================
+\Needspace{30mm}
+\section*{一、SUE（\texttt{sue.py}）}
+
+main 用 \texttt{datadate <= date} 把季度 SUE 铺到月份上。也就是说，季度一结束，SUE 就进了面板，而这时盈利往往还没公告。HXZ 的规定很清楚：1972 年起用最近一次公告（RDQ）的 SUE；1972 年前没有 RDQ，用至少四个月前结束的季度；季末距形成月不能超过六个月；公告日必须晚于季末。
 
 \begin{ratebox}
-\ratecompare{修复前}{\textcolor{red!75!black}{41.4256\%}（938,820 / 2,266,282）}{修复后}{\textcolor{red!75!black}{0\%}（0 / 2,473,877）}
-\rateline{代码}{\texttt{chars\_ciz/sue.py}\quad\textbf{参考}\quad HXZ（公告日匹配）；JKP（公司匹配）}
+\ratecompare{修复前}{\focusvalue{46.2\%}（169,561 / 367,216）在公告前使用}{修复后}{\focusvalue{0}}
+\ratecompare{1972 年前}{\focusvalue{61,421 / 62,581} 行不足四个月}{修复后}{\focusvalue{0}}
+\rateline{参考}{HXZ A.1.1}
 \end{ratebox}
-
-\smallskip
-\begin{minipage}{\linewidth}
 
 \noindent\begin{minipage}[t]{0.48\linewidth}
-\blocktitle{原代码}
+\blocktitle{修复前}
 \begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-SELECT a.gvkey, a.permno, a.datadate, b.date, a.sue
-FROM ccm2 a
-LEFT JOIN crsp_msf b
-    ON a.datadate <= b.date
-    AND a.plus12m >= b.date
-ORDER BY a.permno, b.date, a.datadate DESC
+\begin{Verbatim}[fontsize=\codefont,breaklines=true]
+ON a.datadate <= b.date
+AND a.plus12m >= b.date
 \end{Verbatim}
 \end{codebox}
-\end{minipage}\hfill\begin{minipage}[t]{0.48\linewidth}
-\blocktitle{修复代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-SELECT a.gvkey, b.permno, a.datadate, b.date, a.sue,
-       a.fyearq, a.fqtr, a.rdq
-FROM (SELECT * FROM crsp_msf
-      WHERE \codehl{date >= DATE '1972-01-01'}) b
-LEFT JOIN ccm2 a
-    ON \codehl{a.gvkey = b._current_gvkey}
-    AND \codehl{a.rdq < b.date}
-    AND \codehl{a.plus6m >= b.date}
-ORDER BY b.permno, b.date, a.datadate DESC, a.rdq DESC, a.fyearq DESC, a.fqtr DESC
-\end{Verbatim}
-\end{codebox}
-\end{minipage}
-\par\medskip
-\end{minipage}
-\blocktitle{HXZ A.1.1，p.2072（PDF 54）：SUE 同比、历史期数与公告日}
-\includegraphics[width=0.85\linewidth]{figures/ref-sue.png}\par
-\par\medskip
-1972 年起按 \texttt{rdq} 匹配，此前用四个月滞后；同比相隔 12 个月，标准差取过去八期中的至少六项。\par\smallskip
-\[\mathrm{SUE}_{q}=\frac{\Delta EPS_q}{\operatorname{sd}(\Delta EPS_{q-1},\ldots,\Delta EPS_{q-8})},\qquad \Delta EPS_q=EPS_q-EPS_{q-4},\quad EPS_q=\frac{\texttt{epspxq}_q}{\texttt{ajexq}_q}.\]
-
-\begin{minipage}{\linewidth}\tablefont\setlength{\tabcolsep}{1pt}
-
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llllllllll@{}}
-\toprule
- &  &  & \multicolumn{3}{c}{Before} & \multicolumn{4}{c}{After} \\
-\cmidrule(lr){4-6}\cmidrule(l){7-10}
-date & jdate & permno & fyearq / fqtr & datadate & sue & fyearq / fqtr & datadate & \rdqmark{rdq} & sue \\
-\midrule
-2023-03-31 & 2023-02-28 & 10026 & 2023 / 1 & 2022-12-31 & -0.241219 & 2023 / 1 & 2022-12-31 & \rdqmark{2023-01-30} & \focusvalue{-0.241219} \\
-2023-04-30 & 2023-03-31 & 10026 & 2023 / \focusvalue{2} & \focusvalue{2023-03-31} & \focusvalue{0.214297} & 2023 / 1 & 2022-12-31 & \rdqmark{2023-01-30} & \focusvalue{-0.241219} \\
-2023-05-31 & 2023-04-30 & 10026 & 2023 / \focusvalue{2} & \focusvalue{2023-03-31} & \focusvalue{0.214297} & 2023 / 1 & 2022-12-31 & \rdqmark{2023-01-30} & \focusvalue{-0.241219} \\
-2023-06-30 & 2023-05-31 & 10026 & 2023 / 2 & 2023-03-31 & 0.214297 & 2023 / 2 & 2023-03-31 & \rdqmark{2023-05-01} & \focusvalue{0.214297} \\
-\addlinespace[3pt]
-
-2023-03-31 & 2023-02-28 & 10200 & 2022 / 4 & 2022-12-31 & 3.910065 & 2022 / 4 & 2022-12-31 & \rdqmark{2023-02-22} & \focusvalue{3.910065} \\
-2023-04-30 & 2023-03-31 & 10200 & \focusvalue{2023} / \focusvalue{1} & \focusvalue{2023-03-31} & \focusvalue{-6.098537} & 2022 / 4 & 2022-12-31 & \rdqmark{2023-02-22} & \focusvalue{3.910065} \\
-2023-05-31 & 2023-04-30 & 10200 & \focusvalue{2023} / \focusvalue{1} & \focusvalue{2023-03-31} & \focusvalue{-6.098537} & 2022 / 4 & 2022-12-31 & \rdqmark{2023-02-22} & \focusvalue{3.910065} \\
-2023-06-30 & 2023-05-31 & 10200 & 2023 / 1 & 2023-03-31 & -6.098537 & 2023 / 1 & 2023-03-31 & \rdqmark{2023-05-02} & \focusvalue{-6.098537} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}\par\medskip\Needspace{16mm}
-\subsection*{年季合并：gvkey 不同或缺失}
-\begin{ratebox}
-\ratecompare{修复前（SUE 漏接）}{\textcolor{red!75!black}{0.1243\%}（2,402 / 1,932,512）}{修复后}{\textcolor{red!75!black}{0\%}（0 / 1,932,512）}
-\rateline{代码}{\texttt{chars\_ciz/impute\_rank\_output.py}\quad\textbf{参考}\quad JKP（先核对当月公司，再合并年季指标）}
-\end{ratebox}
-
-\smallskip
-\begin{minipage}{\linewidth}
-
-\noindent\begin{minipage}[t]{0.48\linewidth}
-\blocktitle{原代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-df = df_a_sel.join(
-    df_q_sel, on=['gvkey', 'permno', 'jdate'],
-    how='left'
-)
-\end{Verbatim}
-\end{codebox}
-\end{minipage}\hfill\begin{minipage}[t]{0.48\linewidth}
-\blocktitle{修复代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-df = df_a_sel.join(
-    df_q_sel, \codehl{on=['permno', 'jdate']},
-    how='left', \codehl{validate='1:1'}
-)
-\end{Verbatim}
-\end{codebox}
-\end{minipage}
-\par\medskip
-\end{minipage}
-\par\medskip
-\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{2pt}
-
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llllllll@{}}
-\toprule
- & & & & & \multicolumn{3}{c}{sue} \\
-\cmidrule(l){6-8}
-permno & jdate & date & 年度 gvkey & 季度 gvkey & 季度源值 & Before & After \\
-\midrule
-55335 & 1984-07-31 & 1984-08-31 & 005207 & 001066 & 0.328600 & \focusvalue{NULL} & \focusvalue{NULL} \\
-16851 & 2018-01-31 & 2018-02-28 & NULL & 004060 & -0.165614 & \focusvalue{NULL} & \focusvalue{-0.165614} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\medskip
-\section*{二、RE}
-\subsection*{历史月份错配}
-\texttt{statpers}：预测快照日；\texttt{fpedats}：预测目标财年截止日；\texttt{meanest}：该财年 EPS 预测均值。\par
-
-\begin{ratebox}
-\ratecompare{修复前}{\textcolor{red!75!black}{84.5309\%}（2,228,395 / 2,636,190）}{修复后}{\textcolor{red!75!black}{0\%}（0 / 1,306,959）}
-\rateline{代码}{\texttt{chars\_ciz/myre.py}\quad\textbf{参考}\quad HXZ（逐月预测变化及六个月汇总）}
-\end{ratebox}
-
-\smallskip
-\begin{minipage}{\linewidth}
-
-\noindent\begin{minipage}[t]{\linewidth}
-\blocktitle{原代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-.unique(...)
-.shift(1).over('permno_fpedats')
-\end{Verbatim}
-\end{codebox}
-\end{minipage}\par\medskip
-\noindent\begin{minipage}[t]{\linewidth}
-\blocktitle{修复代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-ON a.ticker=b.ticker AND a.permno=b.permno AND \codehl{a.fpedats=b.fpedats}
-AND \codehl{b.month_id=a.month_id-1}
-
-ON a.ticker=b.ticker AND a.permno=b.permno
-AND \codehl{b.month_id=a.month_id-\{k\}}
-\end{Verbatim}
-\end{codebox}
-\end{minipage}
-\par\medskip
-\end{minipage}
-\par\medskip
-\begin{minipage}{\linewidth}
-\[\mathrm{RE}_t=\sum_{k=0}^{5}\mathrm{revision}_{t-k},\qquad \mathrm{revision}_{t}=\frac{\texttt{meanest}_{t}-\texttt{meanest}_{t-1}}{\texttt{prc\_adj}_{t}},\quad \texttt{prc\_adj}_{t}=\frac{\texttt{prc}_{t-1}}{\texttt{cfacpr}_{t-1}}.\]
-\end{minipage}
-
-\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{1pt}
-
-\blocktitle{Panel A：Before}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllllllll@{}}
-\toprule
-permno & statpers & lag\_date\_1 & lag\_date\_2 & lag\_date\_3 & lag\_date\_4 & lag\_date\_5 & lag\_date\_6 & re \\
-\midrule
-14392 & 2014-10-16 & \focusvalue{2014-11-20} & \focusvalue{2014-12-18} & 2014-09-18 & NULL & NULL & NULL & \focusvalue{-0.000857} \\
-14423 & 2020-07-16 & \focusvalue{2020-09-17} & 2019-04-18 & 2020-02-20 & NULL & NULL & NULL & \focusvalue{-0.007797} \\
-14449 & 2016-07-14 & 2016-02-18 & 2015-04-16 & \focusvalue{2016-11-17} & NULL & NULL & NULL & \focusvalue{0.106589} \\
-\bottomrule
-\end{tabular*}
-\par\smallskip
-\blocktitle{Panel B：After}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllllllll@{}}
-\toprule
-permno & statpers & lag\_date\_1 & lag\_date\_2 & lag\_date\_3 & lag\_date\_4 & lag\_date\_5 & lag\_date\_6 & re \\
-\midrule
-14392 & 2014-10-16 & 2014-10-16 & 2014-09-18 & 2014-08-14 & 2014-07-17 & 2014-06-19 & 2014-05-15 & \focusvalue{-0.000671} \\
-14423 & 2020-07-16 & 2020-07-16 & 2020-06-18 & 2020-05-14 & 2020-04-16 & 2020-03-19 & NULL & \focusvalue{-0.007377} \\
-14449 & 2016-07-14 & 2016-07-14 & 2016-06-16 & 2016-05-19 & 2016-04-14 & 2016-03-17 & NULL & \focusvalue{-0.004702} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-
-\par\medskip
-\Needspace{16mm}
-
-\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{2pt}
-
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllll@{}}
-\toprule
- & & & \multicolumn{2}{c}{re} \\
-\cmidrule(l){4-5}
-date & jdate & permno & Before & After \\
-\midrule
-2014-11-30 & 2014-10-31 & 14392 & \focusvalue{-0.000857} & \focusvalue{-0.000671} \\
-2020-08-31 & 2020-07-31 & 14423 & \focusvalue{-0.007797} & \focusvalue{-0.007377} \\
-2016-08-31 & 2016-07-31 & 14449 & \focusvalue{0.106589} & \focusvalue{-0.004702} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-
-\par\medskip
-\Needspace{16mm}
-\subsection*{换财年后保留此前 FY1 修正}
-\begin{ratebox}
-\ratecompare{修复前}{\textcolor{red!75!black}{25.8587\%}（289,322 / 1,118,858）}{修复后}{\textcolor{red!75!black}{0\%}（0 / 1,118,858）}
-\rateline{代码}{\texttt{chars\_ciz/myre.py}\quad\textbf{参考}\quad HXZ（按月定义推导）}
-\end{ratebox}
-\begin{minipage}{\linewidth}
-
+\end{minipage}\hfill
 \begin{minipage}[t]{0.48\linewidth}
-\blocktitle{原代码}
+\blocktitle{修复后}
 \begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-ON a.ticker=b.ticker AND a.permno=b.permno AND a.fpedats=b.fpedats
-AND b.month_id=a.month_id-{k}
-\end{Verbatim}
-\end{codebox}
-\end{minipage}\hfill\begin{minipage}[t]{0.48\linewidth}
-\blocktitle{修复代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-ON a.ticker=b.ticker AND a.permno=b.permno
-AND \codehl{b.month_id=a.month_id-\{k\}}
-\end{Verbatim}
-\end{codebox}
-\end{minipage}
-\end{minipage}
-\par\medskip
-FY1 由 FY2022 切换到 FY2023；2022-10 只有 FPI=2 记录。\par
-\begin{minipage}{\linewidth}
-\tablefont
-\setlength{\tabcolsep}{1pt}
-\blocktitle{预测数据及月度计算结果（价格来源调整前）}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllllllll@{}}
-\toprule
-permno & month & statpers & fpi & fpedats & meanest & meanest\_last\_month & prc\_adj & monthly\_revision \\
-\midrule
-10026 & 2022-06 & 2022-06-16 & 1 & 2022-09-30 & 2.73 & 2.74 & 128.22 & -0.000077991 \\
-10026 & 2022-07 & 2022-07-14 & 1 & 2022-09-30 & 2.74 & 2.73 & 139.66 & 0.000071602 \\
-10026 & 2022-08 & 2022-08-18 & 1 & 2022-09-30 & 2.59 & 2.74 & 135.51 & -0.001106929 \\
-10026 & 2022-09 & 2022-09-15 & 1 & 2022-09-30 & 2.59 & 2.59 & 149.03 & 0.000000000 \\
-10026 & 2022-10 & 2022-10-20 & \focusvalue{2} & 2023-09-30 & 4.87 & -- & -- & -- \\
-10026 & 2022-11 & 2022-11-17 & 1 & 2023-09-30 & 4.81 & NULL & 147.61 & NULL \\
-10026 & 2022-12 & 2022-12-15 & 1 & 2023-09-30 & 4.83 & 4.81 & 164.02 & 0.000121936 \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\medskip
-\Needspace{16mm}
-\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{1pt}
-
-\blocktitle{Panel A：Before}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llllllllll@{}}
-\toprule
-permno & statpers & fpedats & revision\_l0 & revision\_l1 & revision\_l2 & revision\_l3 & revision\_l4 & revision\_l5 & re \\
-\midrule
-10026 & 2022-11-17 & 2023-09-30 & NULL & NULL & NULL & NULL & NULL & NULL & \focusvalue{NULL} \\
-10026 & 2022-12-15 & 2023-09-30 & 0.000121936 & NULL & NULL & NULL & NULL & NULL & \focusvalue{NULL} \\
-\bottomrule
-\end{tabular*}
-\par\smallskip
-\blocktitle{Panel B：After}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llllllllll@{}}
-\toprule
-permno & statpers & fpedats & revision\_l0 & revision\_l1 & revision\_l2 & revision\_l3 & revision\_l4 & revision\_l5 & re \\
-\midrule
-10026 & 2022-11-17 & 2023-09-30 & NULL & NULL & 0.000000000 & -0.001106929 & 0.000071602 & -0.000077991 & \focusvalue{-0.001113} \\
-10026 & 2022-12-15 & 2023-09-30 & 0.000121936 & NULL & NULL & 0.000000000 & -0.001106929 & 0.000071602 & \focusvalue{-0.000913} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-
-\par\medskip
-
-\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{2pt}
-
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllll@{}}
-\toprule
- & & & \multicolumn{2}{c}{re} \\
-\cmidrule(l){4-5}
-date & jdate & permno & Before & After \\
-\midrule
-2022-12-31 & 2022-11-30 & 10026 & \focusvalue{NULL} & \focusvalue{-0.001113} \\
-2023-01-31 & 2022-12-31 & 10026 & \focusvalue{NULL} & \focusvalue{-0.000913} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-
-\par\medskip
-\Needspace{16mm}
-\subsection*{FY1 与 FY2 的预测期限}
-
-\texttt{fpi=1} 是最近尚未公布全年业绩的财年（FY1）；\texttt{fpi=2} 是其后一年（FY2）。\par
-FY2 对应更远一期盈利，与 FY1 混用会改变信号期限；10 月 FY2 与 11 月 FY1 虽同指 FY2023，也不代表预测期限相同。\par
-\noindent\href{https://theinvestmentcapm.com/uploads/1/2/2/6/122679606/houxuezhang2020rfs.pdf}{HXZ（2020）附录 A.1.3，第 2073 页（两处原文短片段）}\par\smallskip
-\noindent\includegraphics[width=105mm]{figures/hxz-re-fy1.png}\par\smallskip
-\par\smallskip
-
-
-\begin{ratebox}
-\ratecompare{修复前}{\textcolor{red!75!black}{50.5170\%}（1,753,844 / 3,471,788）}{修复后}{\textcolor{red!75!black}{0\%}（0 / 1,717,944）}
-\rateline{代码}{\texttt{chars\_ciz/myre.py}\quad\textbf{参考}\quad HXZ（FY1 预测）}
-\end{ratebox}
-
-\smallskip
-\begin{minipage}{\linewidth}
-
-\noindent\begin{minipage}[t]{0.48\linewidth}
-\blocktitle{原代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-pl.col('medest').is_not_null() & pl.col('fpedats').is_not_null()
-\end{Verbatim}
-\end{codebox}
-\end{minipage}\hfill\begin{minipage}[t]{0.48\linewidth}
-\blocktitle{修复代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-(\codehl{pl.col('fpi') == '1'}) &
-\end{Verbatim}
-\end{codebox}
-\end{minipage}
-\par\medskip
-\end{minipage}
-\par\medskip
-
-\[
-\texttt{monthly\_revision}=\frac{\texttt{meanest}-\texttt{meanest\_last\_month}}{\texttt{prc\_adj}}
-\]
-\Needspace{16mm}
-\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{2pt}
-
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllllllll@{}}
-\toprule
- &  &  &  &  & \multicolumn{2}{c}{Before} & \multicolumn{2}{c}{After} \\
-\cmidrule(lr){6-7}\cmidrule(l){8-9}
-permno & statpers & fpi & meanest & prc\_adj & \shortstack[l]{meanest\_\\last\_month} & \shortstack[l]{monthly\_\\revision} & \shortstack[l]{meanest\_\\last\_month} & \shortstack[l]{monthly\_\\revision} \\
-\midrule
-10026 & 2022-06-16 & 2 & 4.78 & 128.22 & 4.73 & \focusvalue{0.000390} & -- & -- \\
-10026 & 2022-07-14 & 2 & 4.88 & 139.66 & 4.78 & \focusvalue{0.000716} & -- & -- \\
-10026 & 2022-08-18 & 2 & 4.85 & 135.51 & 4.88 & \focusvalue{-0.000221} & -- & -- \\
-10026 & 2022-09-15 & 2 & 4.85 & 149.03 & 4.85 & \focusvalue{0.000000} & -- & -- \\
-10026 & 2022-10-20 & 2 & 4.87 & 129.47 & 4.85 & \focusvalue{0.000154} & -- & -- \\
-10026 & 2022-11-17 & 1 & 4.81 & 147.61 & 4.87 & \focusvalue{-0.000406} & NULL & \focusvalue{NULL} \\
-10026 & 2022-12-15 & 1 & 4.83 & 164.02 & 4.81 & \focusvalue{0.000122} & 4.81 & \focusvalue{0.000122} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-{\notefont After 中，--：FPI=2，已筛除；NULL：记录保留，但没有上月 FY1 预测。}\par
-
-\par\medskip
-\Needspace{16mm}
-\subsection*{汇总月份、有效项数与求和}
-
-\begin{ratebox}
-\ratecompare{输出变化}{\textcolor{red!75!black}{96.4680\%}（1,449,467 / 1,502,537）}{公式检查}{\textcolor{red!75!black}{0\%}（0 / 1,306,959）}
-\rateline{代码}{\texttt{chars\_ciz/myre.py}\quad\textbf{参考}\quad HXZ（附录 A.1.3，公式 A2）}
-\end{ratebox}
-
-\smallskip
-\begin{minipage}{\linewidth}
-
-\noindent\begin{minipage}[t]{0.48\linewidth}
-\blocktitle{调整前代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-range(1, 7)
-len() >= 3
-list.mean()
-\end{Verbatim}
-\end{codebox}
-\end{minipage}\hfill\begin{minipage}[t]{0.48\linewidth}
-\blocktitle{修复代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-\codehl{range(0, 6)}
-\codehl{len() >= 4}
-\codehl{list.sum()}
-\end{Verbatim}
-\end{codebox}
-\end{minipage}
-\par\medskip
-\end{minipage}
-\par\medskip
-
-\begin{minipage}{\linewidth}
-\tablefont
-\setlength{\tabcolsep}{1pt}
-\blocktitle{预测数据及月度计算结果（价格来源调整前）}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllllll@{}}
-\toprule
-permno & statpers & fpedats & meanest & previous\_statpers & prc\_adj & monthly\_revision \\
-\midrule
-10026 & 2022-09-15 & 2022-09-30 & 2.59 & 2022-08-18 & 149.03 & 0.000000000 \\
-10026 & 2022-11-17 & 2023-09-30 & 4.81 & NULL & 147.61 & NULL \\
-10026 & 2022-12-15 & 2023-09-30 & 4.83 & 2022-11-17 & 164.02 & 0.000121936 \\
-10026 & 2023-01-19 & 2023-09-30 & 4.80 & 2022-12-15 & 149.71 & -0.000200387 \\
-10026 & 2023-02-16 & 2023-09-30 & 4.11 & 2023-01-19 & 143.30 & -0.004815073 \\
-10026 & 2023-03-16 & 2023-09-30 & 4.11 & 2023-02-16 & 141.21 & 0.000000000 \\
-10026 & 2023-04-20 & 2023-09-30 & 4.06 & 2023-03-16 & 148.22 & -0.000337336 \\
-10026 & 2023-05-18 & 2023-09-30 & 3.91 & 2023-04-20 & 153.20 & -0.000979112 \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\medskip
-
-\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{1pt}
-\fontsize{8.5}{14.5}\selectfont
-
-\blocktitle{Panel A：Before}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllllllllll@{}}
-\toprule
-permno & statpers & fpedats & revision\_l0 & revision\_l1 & revision\_l2 & revision\_l3 & revision\_l4 & revision\_l5 & revision\_l6 & re \\
-\midrule
-10026 & 2023-03-16 & 2023-09-30 & -- & -0.004815073 & -0.000200387 & 0.000121936 & NULL & NULL & 0.000000000 & \focusvalue{-0.001223} \\
-\bottomrule
-\end{tabular*}
-\par\smallskip
-\blocktitle{Panel B：After}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllllllllll@{}}
-\toprule
-permno & statpers & fpedats & revision\_l0 & revision\_l1 & revision\_l2 & revision\_l3 & revision\_l4 & revision\_l5 & revision\_l6 & re \\
-\midrule
-10026 & 2023-03-16 & 2023-09-30 & 0.000000000 & -0.004815073 & -0.000200387 & 0.000121936 & NULL & NULL & -- & \focusvalue{-0.004894} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-
-\par\medskip
-\noindent\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{2pt}
-
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllll@{}}
-\toprule
- & & & \multicolumn{2}{c}{re} \\
-\cmidrule(l){4-5}
-date & jdate & permno & Before & After \\
-\midrule
-2023-02-28 & 2023-01-31 & 10026 & \focusvalue{-0.000228} & \focusvalue{-0.001185} \\
-2023-03-31 & 2023-02-28 & 10026 & \focusvalue{-0.000296} & \focusvalue{-0.004894} \\
-2023-04-30 & 2023-03-31 & 10026 & \focusvalue{-0.001223} & \focusvalue{-0.004894} \\
-2023-05-31 & 2023-04-30 & 10026 & \focusvalue{-0.001223} & \focusvalue{-0.005231} \\
-2023-06-30 & 2023-05-31 & 10026 & \focusvalue{-0.001046} & \focusvalue{-0.006210} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-
-\par\medskip
-
-\href{https://theinvestmentcapm.com/uploads/1/2/2/6/122679606/houxuezhang2020rfs.pdf}{HXZ A.1.3 / A2}：取当月和前五个月，至少四项，按公式求和。上表单独比较汇总规则，保留调整前的 CRSP 价格；价格来源的后续修正见下表。-- 表示窗口外。\par
-
-\par\medskip
-\Needspace{16mm}
-\Needspace{55mm}
-\subsection*{EPS、价格来源与拆股调整}
-\begin{ratebox}
-\ratecompare{修复前}{调整后 IBES EPS、CRSP 调整价}{修复后}{IBES 原始 EPS、上一月原始 \rdqmark{PRICE}}
-\rateline{代码}{\texttt{chars\_ciz/myre.py}；\texttt{download\_data.py}\quad\textbf{参考}\quad HXZ A.1.3 / A2；WRDS 拆股说明 Method 3}
-\end{ratebox}
-
-调整体系不同会把拆股误算为预测变化。令 $f,f_0$ 为当月、上月原始预测，$p_0$ 为上月原始价格；$c,c_0$ 为预测日股数因子，$c_{p0}$ 为价格日股数因子：
-\[
-\mathrm{monthly\_revision}=\frac{f-f_0c/c_0}{p_0c/c_{p0}}.
-\]
-
-\blocktitle{JJSF（10026）：分母及月度变化}
-\begin{minipage}{\linewidth}\tablefont\setlength{\tabcolsep}{2pt}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llllll@{}}
-\toprule
-statpers & meanest change & prc\_adj (Before) & \rdqmark{PRICE (After)} & \rdqmark{prdays (After)} & monthly\_revision (Before / After) \\
-\midrule
-2022-12-15 & $4.83-4.81$ & 164.02 & \rdqmark{\focusvalue{156.08}} & \rdqmark{2022-11-16} & $0.000121936\;/\;\focusvalue{0.000128139}$ \\
-2023-01-19 & $4.80-4.83$ & 149.71 & \rdqmark{\focusvalue{156.04}} & \rdqmark{2022-12-14} & $-0.000200387\;/\;\focusvalue{-0.000192258}$ \\
-2023-02-16 & $4.11-4.80$ & 143.30 & \rdqmark{\focusvalue{148.41}} & \rdqmark{2023-01-18} & $-0.004815073\;/\;\focusvalue{-0.004649282}$ \\
-\bottomrule
-\end{tabular*}\end{minipage}\par\smallskip
-\rdqmark{PRICE} 为原始股价，\rdqmark{prdays} 为报价日；本例无拆股。\par
-
-\blocktitle{\texttt{chars\_raw\_no\_impute.parquet}：价格来源调整前后}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllll@{}}
-\toprule
-date & jdate & permno & re (Before) & re (After) \\
-\midrule
-2023-02-28 & 2023-01-31 & 10026 & -0.001185 & \focusvalue{-0.001312} \\
-2023-03-31 & 2023-02-28 & 10026 & -0.004894 & \focusvalue{-0.004855} \\
-2023-04-30 & 2023-03-31 & 10026 & -0.004894 & \focusvalue{-0.004855} \\
-\bottomrule
-\end{tabular*}\par\medskip
-\blocktitle{HXZ A.1.3 / A2，p.2073（PDF 55）：FY1、原始 EPS / PRICE、拆股及至少四项}
-\includegraphics[width=0.85\linewidth]{figures/ref-re.png}\par
-\blocktitle{WRDS（2006）Method 3，PDF 6：以 CRSP 日度股数因子统一每股基础}
-\includegraphics[width=\linewidth]{figures/ref-splits.png}\par
-\section*{三、ROA}
-\subsection*{按盈利公告日匹配季度值}
-
-\begin{ratebox}
-\ratecompare{修复前}{\textcolor{red!75!black}{0.9096\%}（24,183 / 2,658,558）}{修复后}{\textcolor{red!75!black}{0\%}（0 / 2,494,209）}
-\rateline{代码}{\texttt{chars\_ciz/accounting.py}\quad\textbf{参考}\quad HXZ A.4.3}
-\end{ratebox}
-上框统计非空季度 ROA 距季末超过六个月的比例。\par
-
-\blocktitle{原代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-pl.col('datadate').dt.offset_by('4mo').dt.month_end().alias('jdate')
-\end{Verbatim}
-\end{codebox}
-\blocktitle{修复代码（节选）}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-roa_events = roa_reports.filter(\codehl{pl.col('rdq') > pl.col('datadate')})
-# ... 同公司匹配上季资产，得到 atq_l1 ...
-roa_events = roa_events.with_columns(
-    (pl.col('ibq') / pl.col('atq_l1').replace(0, None)).alias('roa'))
-roa_public = (pl.concat([
-    roa_events.with_columns(pl.col('datadate').dt.offset_by(f'\{k\}mo').dt.month_end().alias('jdate'))
-    for k in \codehl{range(1, 7)}])
-    .filter(\codehl{pl.col('rdq') < pl.col('jdate')})
-    .sort(['gvkey', 'jdate', 'rdq', 'datadate'], descending=[False, False, True, True])
-    .unique(subset=['gvkey', 'jdate'], keep='first', maintain_order=True))
-\end{Verbatim}
-\end{codebox}
-\[\mathrm{ROA}_q=\frac{\texttt{ibq}_q}{\texttt{atq}_{q-1}}.\]
-\blocktitle{HXZ A.4.3，p.2093（PDF 75）：ROA 分母为上季度资产，按公告日使用}
-\includegraphics[width=0.85\linewidth]{figures/ref-roa.png}\par
-\par\smallskip
-
-\noindent\begin{minipage}[t]{0.48\linewidth}
-\tablefont\setlength{\tabcolsep}{1pt}
-\blocktitle{Panel A：Before，2023-01-31 形成月}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllll@{}}
-\toprule
-permno & datadate & ibq & atq\_l1 & roa \\
-\midrule
-10026 & 2022-09-30 & 17.310 & 1291.242 & 0.013406 \\
-\bottomrule
-\end{tabular*}
-\end{minipage}\hfill\begin{minipage}[t]{0.48\linewidth}
-\tablefont\setlength{\tabcolsep}{1pt}
-\blocktitle{Panel B：After，同一形成月}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllll@{}}
-\toprule
-permno & datadate & ibq & atq\_l1 & roa \\
-\midrule
-10026 & 2022-12-31 & 6.633 & 1216.966 & 0.005450 \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\medskip
-\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{1pt}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllllll@{}}
-\toprule
- & & & \multicolumn{2}{c}{Before} & \multicolumn{2}{c}{After} \\
-\cmidrule(lr){4-5}\cmidrule(l){6-7}
-date & jdate & permno & roa (Quarterly) & roa (Final) & roa (Quarterly) & roa (Final) \\
-\midrule
-2023-02-28 & 2023-01-31 & 10026 & 0.013406 & 0.013406 & \focusvalue{0.005450} & \focusvalue{0.005450} \\
-2023-03-31 & 2023-02-28 & 10026 & 0.013406 & 0.013406 & \focusvalue{0.005450} & \focusvalue{0.005450} \\
-2023-04-30 & 2023-03-31 & 10026 & 0.013406 & 0.013406 & \focusvalue{0.005450} & \focusvalue{0.005450} \\
-2023-05-31 & 2023-04-30 & 10026 & 0.005450 & 0.005450 & \focusvalue{0.005450} & \focusvalue{0.005450} \\
-2023-06-30 & 2023-05-31 & 10026 & 0.005450 & 0.005450 & \focusvalue{0.005597} & \focusvalue{0.005597} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\smallskip
-\textbf{HXZ A.4.3：}使用最近公告日（RDQ）的盈利；季末距形成月不超过六个月，公告日晚于季末。\par\medskip
-\subsection*{分母来自同公司、对应期间}
-
-\begin{ratebox}
-\rateline{代码}{\texttt{chars\_ciz/accounting.py}}
-\rateline{参考}{\href{https://theinvestmentcapm.com/uploads/1/2/2/6/122679606/houxuezhang2020rfs.pdf}{HXZ}（ROA 公式）；\href{https://sites.google.com/site/jeremiahrgreenacctg/home}{GHZ}（公司首期缺历史时置空）；\href{https://github.com/bkelly-lab/jkp-data/blob/83437be5124703a9f6df8e20eae51d9b9d4f78b1/src/jkp/data/aux_functions.py}{JKP}（公司内、按月匹配）}
-\end{ratebox}
-
-\noindent\begin{minipage}[t]{\linewidth}
-\blocktitle{原代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-pl.col('atq').shift(1).over('permno')
+\begin{Verbatim}[fontsize=\codefont,breaklines=true,commandchars=\\\{\}]
+ON a.datadate < b.date
+AND \codehl{a.plus6m} >= b.date
+AND (CASE WHEN b.date < DATE '1972-01-01'
+     THEN \codehl{a.plus4m} ELSE \codehl{a.rdq} END) <= b.date
 \end{Verbatim}
 \end{codebox}
 \end{minipage}\par\medskip
-\noindent\begin{minipage}[t]{\linewidth}
-\blocktitle{修复代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-\codehl{calendar_lag}(frame, asset, \codehl{1, months}, \codehl{history=raw})
-\end{Verbatim}
-\end{codebox}
-\end{minipage}
-\par\smallskip
-\[\mathrm{ROA}_q=\frac{\texttt{ibq}_q}{\texttt{atq}_{q-1}},\qquad \mathrm{ROA}_y=\frac{\texttt{ib}_y}{\texttt{at}_{y-1}}.\]
-同一 gvkey 的上季/上年资产；无记录、资产为零或同期数值冲突时为 NULL。\par\smallskip
 
-\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{1pt}
-\blocktitle{MULN：季度 ROA 计算对照}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llllllll@{}}
-\toprule
- & & & & \multicolumn{2}{c}{atq\_l1} & \multicolumn{2}{c}{roa} \\
-\cmidrule(lr){5-6}\cmidrule(l){7-8}
-permno & gvkey & datadate & ibq & Before & After & Before & After \\
-\midrule
-12350 & 040116 & 2021-12-31 & -156.062 & \focusvalue{30.773} & \focusvalue{NULL} & \focusvalue{-5.071394} & \focusvalue{NULL} \\
-12350 & 040116 & 2022-03-31 & -324.608 & 45.413 & 45.413 & -7.147909 & -7.147909 \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\smallskip
-新公司首季缺本公司上季资产，ROA 为 NULL；后续恢复计算。\par\medskip
+另外两处小改：
+\begin{itemize}
+\item 历史 EPS 改为``同一 gvkey、往前 $3k$ 个月''的季度，而不是往前数 $k$ 行；中间缺一个季度时，按行数会错位。历史直接取自 Compustat，包括 CRSP 链接之前的季度。
+\item 标准差只要求过去八个同比变化中至少有六个非空，直接数非空个数，不再按记录条数分情况。
+\end{itemize}
 
-\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{1pt}
-\blocktitle{年度 ROA：缺失年度不得回退到更早年度}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llllllll@{}}
+\[\mathrm{SUE}_q=\frac{EPS_q-EPS_{q-4}}{\operatorname{sd}\bigl(\Delta EPS_{q-1},\ldots,\Delta EPS_{q-8}\bigr)},\qquad EPS=\texttt{epspxq}/\texttt{ajexq}.\]
+
+\blocktitle{例：permno 10028（2019 年）}
+\begingroup\tablefont\setlength{\tabcolsep}{4pt}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllrllr@{}}
 \toprule
- & & & & \multicolumn{2}{c}{at$_{y-1}$} & \multicolumn{2}{c}{roa} \\
-\cmidrule(lr){5-6}\cmidrule(l){7-8}
-permno & gvkey & datadate & ib & Before & After & Before & After \\
+& \multicolumn{3}{c}{修复前} & \multicolumn{3}{c}{修复后} \\
+\cmidrule(lr){2-4}\cmidrule(l){5-7}
+jdate & datadate & rdq & sue & datadate & rdq & sue \\
 \midrule
-10066 & 014112 & 1999-06-30 & -2.413 & \focusvalue{7.253} & \focusvalue{8.892} & \focusvalue{-0.332690} & \focusvalue{-0.271368} \\
+2019-03-31 & \focusvalue{2018-12-31} & \rdqmark{2019-04-12} & $-0.158$ & 2018-09-30 & 2018-11-19 & $-0.559$ \\
+2019-04-30 & \focusvalue{2019-03-31} & \rdqmark{2019-05-20} & $0.000$ & 2018-12-31 & 2019-04-12 & $-0.158$ \\
+2019-05-31 & 2019-03-31 & 2019-05-20 & $0.000$ & 2019-03-31 & 2019-05-20 & $0.000$ \\
 \bottomrule
-\end{tabular*}
-\end{minipage}
-\par\smallskip
-修复前按行 \texttt{shift(1)}，跳过 FY1990--FY1998 后使用 FY1989 资产；修复后取同一 gvkey 的 FY1998 资产。\par\medskip
-\Needspace{80mm}
-\section*{四、AGR / CHTX / NI / CHCSHO}
-财务滞后统一用 \texttt{calendar\_lag}：按同一股票、gvkey 和目标年月连接。\par
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-calendar_lag(data_rawq, field, k, months=3)
-calendar_lag(data_rawa, field, k, months=12)
-\end{Verbatim}
-\end{codebox}
-\subsection*{匹配去年同季}
+\end{tabular*}\endgroup
+
+3 月底时，2018 年四季度的盈利要到 4 月 12 日才公布，修复前却已经在用。
+
+\blocktitle{例：1972 年前，permno 44396}
+\begingroup\tablefont\setlength{\tabcolsep}{4pt}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllll@{}}
+\toprule
+jdate & datadate（前） & sue（前） & datadate（后） & sue（后） \\
+\midrule
+1970-12-31 & \focusvalue{1970-12-31} & 5.752 & 1970-06-30 & 0.604 \\
+1971-01-31 & \focusvalue{1970-12-31} & 5.752 & 1970-09-30 & 2.831 \\
+1971-04-30 & 1971-03-31 & $-0.347$ & 1970-12-31 & 5.752 \\
+\bottomrule
+\end{tabular*}\endgroup
+
+修复前在季度结束的当月就用上了这个季度；修复后要等满四个月。
+
+\blocktitle{HXZ A.1.1}
+\includegraphics[width=0.85\linewidth]{figures/ref-sue.png}\par
+
+%======================================================================
+\Needspace{30mm}
+\section*{二、ABR（\texttt{abr.py}）}
+
+四天窗口 $[-2,+1]$ 的算法本身没有问题，修复前后数值完全一致。要改的只有两点，都直接来自 HXZ：季末距形成月不超过六个月（main 是十二个月），以及公告日必须晚于季末。
 
 \begin{ratebox}
-\begin{tabularx}{\linewidth}{@{}lXX@{}}
-\textbf{指标} & \textbf{修复前} & \textbf{修复后} \\
-\addlinespace[3pt]
-AGR & \textcolor{red!75!black}{3.0731\%}（76,272 / 2,481,899） & \textcolor{red!75!black}{0\%}（0 / 2,265,450） \\
-CHCSHO & \textcolor{red!75!black}{2.9703\%}（72,861 / 2,452,944） & \textcolor{red!75!black}{0\%}（0 / 2,260,830） \\
-CHTX & \textcolor{red!75!black}{3.0309\%}（74,691 / 2,464,334） & \textcolor{red!75!black}{0\%}（0 / 2,250,289） \\
-NI & \textcolor{red!75!black}{14.2624\%}（398,141 / 2,791,546） & \textcolor{red!75!black}{0\%}（0 / 2,260,803） \\
-\end{tabularx}
-\rateline{代码}{\texttt{chars\_ciz/accounting.py}\quad\textbf{参考}\quad HXZ、GHZ（指标定义）；JKP（同期匹配）}
+\ratecompare{修复前}{\focusvalue{17,145} 行季末超过六个月（4.0\%）}{修复后}{\focusvalue{0}}
+\rateline{其余}{同一 permno、同一月份上的 ABR 数值 100\% 相同}
+\rateline{参考}{HXZ A.1.2}
 \end{ratebox}
-
-\smallskip
-\begin{minipage}{\linewidth}
 
 \noindent\begin{minipage}[t]{0.48\linewidth}
-\blocktitle{原代码}
+\blocktitle{修复前}
 \begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-.shift(4).over('permno')
+\begin{Verbatim}[fontsize=\codefont,breaklines=true]
+ccm_merged
+    .sort("rdq")
+...
+AND a.plus12m >= b.date
 \end{Verbatim}
 \end{codebox}
-\end{minipage}\hfill\begin{minipage}[t]{0.48\linewidth}
-\blocktitle{修复代码}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\linewidth}
+\blocktitle{修复后}
 \begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-\codehl{b.period_id=a.period_id-12} AND \codehl{b.rdq<a.jdate}
-\end{Verbatim}
-\end{codebox}
-\end{minipage}
-\par\medskip
-\end{minipage}
-\par\medskip
-\[\mathrm{AGR}=\frac{\texttt{atq}_q-\texttt{atq}_{q-4}}{\texttt{atq}_{q-4}},\qquad
-\mathrm{CHTX}=\frac{\texttt{txtq}_q-\texttt{txtq}_{q-4}}{\texttt{atq}_{q-4}},\qquad
-\mathrm{CHCSHO}=\frac{\texttt{cshoq}_q}{\texttt{cshoq}_{q-4}}-1.\]
-\[\mathrm{NI}=\ln(\texttt{cshoq}_q\times\texttt{ajexq}_q)-\ln(\texttt{cshoq}_{q-4}\times\texttt{ajexq}_{q-4}).\]
-
-\par
-\begin{minipage}{\linewidth}
-\tablefont
-\setlength{\tabcolsep}{1pt}
-\blocktitle{2013 年 2—4 月：财务数据与指标计算}
-\fontsize{8}{13.5}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllllllll@{}}
-\toprule
-\multicolumn{9}{@{}l}{\textbf{Panel A：Before}} \\
-\midrule
-permno & Compustat & datadate & fyearq / fqtr & rdq & atq & txtq & cshoq & ajexq \\
-\midrule
-10028 & Current & 2012-09-30 & 2012 / 3 & 2012-11-13 & 24.489 & 0.028 & 12.176 & 1.0 \\
-10028 & Lag & \focusvalue{2010-12-31} & 2010 / \focusvalue{4} & 2011-04-15 & \focusvalue{30.260} & \focusvalue{0.020} & \focusvalue{9.986} & 1.0 \\
-\midrule
-\multicolumn{9}{@{}l}{\textbf{Panel B：After}} \\
-\midrule
-permno & Compustat & datadate & fyearq / fqtr & rdq & atq & txtq & cshoq & ajexq \\
-\midrule
-10028 & Current & 2012-09-30 & 2012 / 3 & 2012-11-13 & 24.489 & 0.028 & 12.176 & 1.0 \\
-10028 & Lag & \focusvalue{2011-09-30} & 2011 / \focusvalue{3} & 2011-11-14 & \focusvalue{42.495} & \focusvalue{0.000} & \focusvalue{11.220} & 1.0 \\
-\midrule
-\multicolumn{2}{@{}l}{指标} & \multicolumn{3}{l}{修复前} & \multicolumn{4}{l@{}}{修复后} \\
-\midrule
-\multicolumn{2}{@{}l}{AGR} & \multicolumn{3}{l}{$(24.489-30.260)/30.260=\focusvalue{-0.190714}$} & \multicolumn{4}{l@{}}{$(24.489-42.495)/42.495=\focusvalue{-0.423720}$} \\
-\multicolumn{2}{@{}l}{CHCSHO} & \multicolumn{3}{l}{$12.176/9.986-1=\focusvalue{0.219307}$} & \multicolumn{4}{l@{}}{$12.176/11.220-1=\focusvalue{0.085205}$} \\
-\multicolumn{2}{@{}l}{CHTX} & \multicolumn{3}{l}{$(0.028-0.020)/30.260=\focusvalue{0.000264}$} & \multicolumn{4}{l@{}}{$(0.028-0)/42.495=\focusvalue{0.000659}$} \\
-\multicolumn{2}{@{}l}{NI} & \multicolumn{3}{l}{$\ln(12.176/9.986)=\focusvalue{0.198283}$} & \multicolumn{4}{l@{}}{$\ln(12.176/11.220)=\focusvalue{0.081769}$} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\smallskip
-\begin{minipage}{\linewidth}
-\tablefont\fontsize{8.5}{13.2}\selectfont\setlength{\tabcolsep}{0.6pt}
-
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llllllllllll@{}}
-\toprule
- & & & & \multicolumn{2}{c}{agr} & \multicolumn{2}{c}{chcsho} & \multicolumn{2}{c}{chtx} & \multicolumn{2}{c}{ni} \\
-\cmidrule(lr){5-6}\cmidrule(lr){7-8}\cmidrule(lr){9-10}\cmidrule(l){11-12}
-date & jdate & datadate & permno & Before & After & Before & After & Before & After & Before & After \\
-\midrule
-2013-01-31 & 2012-12-31 & 2011-09-30 & 10028 & 0.508198 & \focusvalue{0.508198} & 0.137470 & \focusvalue{0.137470} & 0.000000 & \focusvalue{0.000000} & 0.128806 & \focusvalue{0.128806} \\
-2013-02-28 & 2013-01-31 & 2012-09-30 & 10028 & \focusvalue{-0.190714} & \focusvalue{-0.423720} & \focusvalue{0.219307} & \focusvalue{0.085205} & \focusvalue{0.000264} & \focusvalue{0.000659} & \focusvalue{0.198283} & \focusvalue{0.081769} \\
-2013-03-31 & 2013-02-28 & 2012-09-30 & 10028 & \focusvalue{-0.190714} & \focusvalue{-0.423720} & \focusvalue{0.219307} & \focusvalue{0.085205} & \focusvalue{0.000264} & \focusvalue{0.000659} & \focusvalue{0.198283} & \focusvalue{0.081769} \\
-2013-04-30 & 2013-03-31 & 2012-09-30 & 10028 & \focusvalue{-0.190714} & \focusvalue{-0.423720} & \focusvalue{0.219307} & \focusvalue{0.085205} & \focusvalue{0.000264} & \focusvalue{0.000659} & \focusvalue{0.198283} & \focusvalue{0.081769} \\
-2013-05-31 & 2013-04-30 & 2012-12-31 & 10028 & \focusvalue{-0.160667} & \focusvalue{-0.055447} & \focusvalue{0.219307} & \focusvalue{0.000987} & \focusvalue{0.001736} & \focusvalue{0.000506} & \focusvalue{0.198283} & \focusvalue{0.000986} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\subsection*{年度：缺失年度不得回退}
-
-\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{1pt}
-\blocktitle{permno 10066（gvkey 014112）：FY1999 年度指标}
-\fontsize{8}{13.5}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llllll@{}}
-\toprule
-\multicolumn{6}{@{}l}{\textbf{Panel A：Before}} \\
-\midrule
-项目 & datadate & at & txt & csho & ajex \\
-\midrule
-当期 & 1999-06-30 & 9.435 & 0.007 & 25.797 & 0.01428571 \\
-滞后 & \focusvalue{1989-06-30} & \focusvalue{7.253} & \focusvalue{0.339} & \focusvalue{59.095} & 0.01428571 \\
-\midrule
-\multicolumn{6}{@{}l}{\textbf{Panel B：After}} \\
-\midrule
-项目 & datadate & at & txt & csho & ajex \\
-\midrule
-当期 & 1999-06-30 & 9.435 & 0.007 & 25.797 & 0.01428571 \\
-滞后 & \focusvalue{1998-06-30} & \focusvalue{8.892} & \focusvalue{0.003} & \focusvalue{18.344} & 0.01428571 \\
-\midrule
-指标 & \multicolumn{2}{l}{Before} & \multicolumn{3}{l@{}}{After} \\
-\midrule
-AGR & \multicolumn{2}{l}{$(9.435-7.253)/7.253=\focusvalue{0.300841}$} & \multicolumn{3}{l@{}}{$(9.435-8.892)/8.892=\focusvalue{0.061066}$} \\
-CHTX & \multicolumn{2}{l}{$(0.007-0.339)/7.253=\focusvalue{-0.045774}$} & \multicolumn{3}{l@{}}{$(0.007-0.003)/8.892=\focusvalue{0.000450}$} \\
-CHCSHO & \multicolumn{2}{l}{$25.797/59.095-1=\focusvalue{-0.563466}$} & \multicolumn{3}{l@{}}{$25.797/18.344-1=\focusvalue{0.406291}$} \\
-NI & \multicolumn{2}{l}{$\ln(25.797/59.095)=\focusvalue{-0.828888}$} & \multicolumn{3}{l@{}}{$\ln(25.797/18.344)=\focusvalue{0.340956}$} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\smallskip
-修复前按行 \texttt{shift(1)}，跳过 FY1990--FY1998 后使用 FY1989；修复后按同一 gvkey 的 \texttt{period\_id}$-12$ 取 FY1998。\par\medskip
-\subsection*{NI：缺少历史股数不得用零替代}
-
-\begin{ratebox}
-\ratecompare{季度修复前}{\textcolor{red!75!black}{11.6199\%}（324,375 / 2,791,546）}{季度修复后}{\textcolor{red!75!black}{0\%}（0 / 2,260,803）}
-\rateline{年度变化}{\textcolor{red!75!black}{8.2413\%}（307,163 / 3,727,137）；空值变化或数值差大于 $10^{-10}$。}
-\rateline{代码}{\texttt{chars\_ciz/accounting.py}\quad\textbf{参考}\quad HXZ（Nsi 年度公式，扩展至季度）；JKP（同期匹配）}
-\end{ratebox}
-
-\smallskip
-\begin{minipage}{\linewidth}
-
-\noindent\begin{minipage}[t]{\linewidth}
-\blocktitle{原代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-.log().fill_nan(0).fill_null(0)
+\begin{Verbatim}[fontsize=\codefont,breaklines=true,commandchars=\\\{\}]
+ccm_merged
+    .filter(\codehl{rdq is not null & rdq > datadate})
+    .sort("rdq")
+...
+AND \codehl{a.plus6m} >= b.date
 \end{Verbatim}
 \end{codebox}
 \end{minipage}\par\medskip
-\noindent\begin{minipage}[t]{\linewidth}
-\blocktitle{修复代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-\codehl{calendar_lag}(data_rawa, c, \codehl{1, 12},
-             \codehl{history=annual_ni_history})
-pl.when((pl.col('csho') * pl.col('ajex') \codehl{> 0}) &
-        (pl.col('_ni_csho_l1') * pl.col('_ni_ajex_l1') \codehl{> 0})).then(...)
-pl.when((pl.col('cshoq') * pl.col('ajexq') \codehl{> 0}) &
-        (pl.col('cshoq_l4') * pl.col('ajexq_l4') \codehl{> 0})).then(...)
-\end{Verbatim}
-\end{codebox}
-\end{minipage}
-\par\medskip
-\end{minipage}
-\par\medskip
-\blocktitle{HXZ A.3.10，p.2088（PDF 70）：NI 为调整后股数比值的对数}
-\includegraphics[width=0.85\linewidth]{figures/ref-ni.png}\par
-\[\mathrm{NI}=\ln(\texttt{csho}_t\times\texttt{ajex}_t)-\ln(\texttt{csho}_{t-1}\times\texttt{ajex}_{t-1}).\]
-年度使用上年数据；季度使用去年同季数据。\par
 
-\begin{minipage}{\linewidth}
-\tablefont
-\setlength{\tabcolsep}{2pt}
-\blocktitle{年度、季度数据及 NI 计算}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllllll@{}}
-\toprule
-permno & Source & datadate & csho / cshoq & ajex / ajexq & jdate (Annual) & linkdt (Annual) \\
-\midrule
-15631 & Quarterly & 2019-06-30 & 12.851 & 0.00588236 & -- & -- \\
-15631 & Quarterly & 2019-09-30 & \focusvalue{NULL} & 0.00588236 & -- & -- \\
-15631 & Quarterly & 2020-06-30 & 1.108 & 0.05882360 & -- & -- \\
-15631 & Quarterly & 2020-09-30 & 1.108 & 0.05882360 & -- & -- \\
-15631 & Annual & 2019-06-30 & 12.851 & 0.00588236 & \focusvalue{2019-10-31} & \focusvalue{2020-04-15} \\
-15631 & Annual & 2020-06-30 & 1.108 & 0.05882360 & 2020-10-31 & 2020-04-15 \\
-\midrule
-\multicolumn{3}{@{}l}{Source / datadate} & \multicolumn{2}{l}{修复前} & \multicolumn{2}{l@{}}{修复后} \\
-\midrule
-\multicolumn{3}{@{}l}{Quarterly / 2020-06-30} & \multicolumn{2}{l}{$\ln(1.108\times0.0588236)-0=\focusvalue{-2.730656}$} & \multicolumn{2}{l@{}}{$\ln\frac{1.108\times0.0588236}{12.851\times0.00588236}=\focusvalue{-0.148280}$} \\
-\multicolumn{3}{@{}l}{Quarterly / 2020-09-30} & \multicolumn{2}{l}{$\ln(1.108\times0.0588236)-0=\focusvalue{-2.730656}$} & \multicolumn{2}{l@{}}{\focusvalue{NULL}} \\
-\multicolumn{3}{@{}l}{Annual / 2020-06-30} & \multicolumn{2}{l}{$\ln(1.108\times0.0588236)-0=\focusvalue{-2.730656}$} & \multicolumn{2}{l@{}}{$\ln\frac{1.108\times0.0588236}{12.851\times0.00588236}=\focusvalue{-0.148280}$} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\medskip
-\noindent\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{2pt}
+\blocktitle{例：permno 10001}
+2017 年一季度（公告日 2017-05-10）的 ABR 在 2017 年 9 月仍然有效；从 10 月起季末已超过六个月，修复后置空。修复前它一直沿用到 2018 年 3 月（季末后 12 个月）。
 
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllll@{}}
-\toprule
- & & & \multicolumn{2}{c}{ni} \\
-\cmidrule(l){4-5}
-date & jdate & permno & Before & After \\
-\midrule
-2020-12-31 & 2020-11-30 & 15631 & \focusvalue{-2.730656} & \focusvalue{-0.148280} \\
-2021-01-31 & 2020-12-31 & 15631 & \focusvalue{-2.730656} & \focusvalue{-0.148280} \\
-2021-02-28 & 2021-01-31 & 15631 & \focusvalue{-2.730656} & \focusvalue{-0.148280} \\
-2021-03-31 & 2021-02-28 & 15631 & \focusvalue{-2.730656} & \focusvalue{-0.148280} \\
-2021-04-30 & 2021-03-31 & 15631 & \focusvalue{-2.730656} & \focusvalue{-0.148280} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-
-\par\medskip
-\Needspace{16mm}
-\section*{五、CINVEST}
-\subsection*{同一公司、连续季度}
-
-按 \href{https://sites.google.com/site/jeremiahrgreenacctg/home}{GHZ} 季度公式，用 \href{https://github.com/bkelly-lab/ReplicationCrisis/blob/67174c7f170bf8b952b3c86876f187fd9970b5ba/GlobalFactors/accounting_chars.sas\#L128-L145}{JKP} 方法匹配同一公司、对应季度。\par
-\begin{ratebox}
-\ratecompare{修复前}{\textcolor{red!75!black}{7.6885\%}（66,323 / 862,631）}{修复后}{\textcolor{red!75!black}{0\%}（0 / 798,038）}
-\rateline{代码}{\texttt{chars\_ciz/accounting.py}\quad\textbf{参考}\quad GHZ（季度公式、代码至少五条记录）；JKP（公司及月份匹配）}
-\end{ratebox}
-
-\noindent\begin{minipage}[t]{\linewidth}
-\blocktitle{原代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-.shift(k).over('permno')
-\end{Verbatim}
-\end{codebox}
-\end{minipage}\par\medskip
-\noindent\begin{minipage}[t]{\linewidth}
-\blocktitle{修复代码（同公司、连续五季）}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-\codehl{calendar_lag}(data_rawq, c, \codehl{k, 3}, \codehl{history=cinvest_history})
-\end{Verbatim}
-\end{codebox}
-\end{minipage}
-\par\medskip
-\blocktitle{GHZ 作者稿，PDF 39：CINVEST 季度公式（非已核实发表版）}
-\includegraphics[width=\linewidth]{figures/ref-cinvest.png}\par
-\blocktitle{JKP \texttt{accounting\_chars.sas}，第 133--147 行：先补齐日期，再连接原财报}
-\begin{codebox}
-\VerbatimInput[firstline=133,lastline=147,fontsize=\codefont,breaklines=true,breakanywhere=true]{reference_materials/JKP_accounting_chars.sas}
-\end{codebox}
-\[\mathrm{CINVEST}_q=d_q-\operatorname{mean}(d_{q-1},d_{q-2},d_{q-3}).\]
-\textbf{GHZ：}``Change over one quarter in net PP\&E (ppentq) divided by sales (saleq)''，再减前三季该比值的均值；``if saleq = 0, then scale by 0.01.''（作者稿表 1）\par
-\textbf{HXZ：}年度 CAPX/SALE 除以前三年均值，再减 1；``We exclude firms with sales less than 10 million dollars.''（A.3.1）\par
-
-
-\begin{minipage}{\linewidth}
-\tablefont\fontsize{8.8}{13.5}\selectfont\setlength{\tabcolsep}{1pt}
-\blocktitle{permno=12350：旧公司 gvkey=163806，新公司 gvkey=040116}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllll@{}}
-\toprule
- & \multicolumn{2}{c}{ppentq} & \multicolumn{2}{c}{\texttt{(ppentq - ppentq\_l1) / 0.01}} \\
-\cmidrule(lr){2-3}\cmidrule(l){4-5}
-datadate & gvkey=163806 & gvkey=040116 & Before & After \\
-\midrule
-2021-03-31 & 0.767 & 无记录 & -- & -- \\
-2021-06-30 & 0.732 & \focusvalue{无记录} & $(0.732-0.767)/0.01=\focusvalue{-3.5}$ & -- \\
-2021-09-30 & -- & \focusvalue{无记录} & -- & -- \\
-2021-12-31 & -- & 15.317 & $(15.317-\focusvalue{0.732})/0.01=\focusvalue{1458.5}$ & \focusvalue{NULL：缺 2021-09} \\
-2022-03-31 & -- & 15.120 & $(15.120-15.317)/0.01=-19.7$ & $-19.7$ \\
-2022-06-30 & -- & 15.383 & $(15.383-15.120)/0.01=26.3$ & $26.3$ \\
-2022-09-30 & -- & 19.401 & $(19.401-15.383)/0.01=401.8$ & $401.8$ \\
-2022-12-31 & -- & 94.561 & $(94.561-19.401)/0.01=7516$ & $7516$ \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\smallskip
-\par
-\begin{minipage}{\linewidth}\tablefont\fontsize{8.8}{13.5}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lll@{}}
-\toprule
- & \multicolumn{2}{c}{cinvest} \\
-\cmidrule(l){2-3}
-datadate & Before & After \\
-\midrule
-2022-06-30 & $26.3-(-19.7+1458.5-3.5)/3=-452.133333$ & \focusvalue{NULL：仅 3/5 季，缺 2021-06、09} \\
-2022-09-30 & $401.8-(26.3-19.7+1458.5)/3=-86.566667$ & \focusvalue{NULL：仅 4/5 季，缺 2021-09} \\
-2022-12-31 & $7516-(401.8+26.3-19.7)/3=7379.866667$ & $7379.866667$（5/5 季齐全） \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\smallskip
-\textbf{NULL：}新公司历史不足。销售额为零时按 GHZ 用 0.01 作分母。\par\smallskip
-\noindent\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{2pt}
-
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllllll@{}}
-\toprule
- & & & & & \multicolumn{2}{c}{cinvest} \\
-\cmidrule(l){6-7}
-date & jdate & permno & 使用季度 & 已有季度 / 5 & Before & After \\
-\midrule
-2023-01-31 & 2022-12-31 & 12350 & 2022-06-30 & 3/5 & \focusvalue{-452.133333} & \focusvalue{NULL} \\
-2023-02-28 & 2023-01-31 & 12350 & 2022-09-30 & 4/5 & \focusvalue{-86.566667} & \focusvalue{NULL} \\
-2023-03-31 & 2023-02-28 & 12350 & 2022-09-30 & 4/5 & \focusvalue{-86.566667} & \focusvalue{NULL} \\
-2023-04-30 & 2023-03-31 & 12350 & 2022-09-30 & 4/5 & \focusvalue{-86.566667} & \focusvalue{NULL} \\
-2023-05-31 & 2023-04-30 & 12350 & 2022-12-31 & 5/5 & 7379.866667 & \focusvalue{7379.866667} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-
-\par\medskip
-\section*{六、ABR}
-\subsection*{同一公告重复连接日收益}
-市场收益用 CRSP 市值加权 \texttt{vwretd}（HXZ A.1.2）。\par
-
-\begin{ratebox}
-\ratecompare{修复前}{\textcolor{red!75!black}{0.1723\%}（4,378 / 2,540,220）}{修复后}{\textcolor{red!75!black}{0\%}（0 / 1,025,121）}
-\rateline{代码}{\texttt{chars\_ciz/abr.py}\quad\textbf{参考}\quad HXZ（四日窗口、季末后六个月内）}
-\end{ratebox}
-
-\smallskip
-\begin{minipage}{\linewidth}
-
-\noindent\begin{minipage}[t]{0.48\linewidth}
-\blocktitle{原代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-con.register("ccm_data", ccm1.to_arrow())
-df.filter(pl.col("abrd").is_not_null())
-\end{Verbatim}
-\end{codebox}
-\end{minipage}\hfill\begin{minipage}[t]{0.48\linewidth}
-\blocktitle{修复代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-ccm1\codehl{.unique(subset=["permno", "rdq_trad"], keep="first")}
-pl.when(pl.col("abrd")\codehl{.count() == 4}).then(pl.col("abrd").sum())
-\end{Verbatim}
-\end{codebox}
-\end{minipage}
-\par\medskip
-\end{minipage}
-\par\medskip
-\blocktitle{HXZ A.1.2，p.2072（PDF 54）：ABR 为公告前两日至后一个交易日}
+\blocktitle{HXZ A.1.2}
 \includegraphics[width=0.85\linewidth]{figures/ref-abr.png}\par
-\[\mathrm{ABR}=\sum_{k=-2}^{1}(\mathrm{ret}_k-\mathrm{mkt}_k).\]
-公告信息超过 \texttt{datadate}+6mo 不再沿用。\par
 
-同一股票、同一公告日的两条财年标签记录只计一次（\href{https://www.sec.gov/Archives/edgar/data/730272/000119312511346392/d272304d8k.htm}{SEC 8-K}）。\par
-\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{2pt}
-\texttt{comp\_fundq.parquet}\par\smallskip
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllllll@{}}
-\toprule
-记录 & gvkey & permno & datadate & rdq & fyearq / fqtr & ibq \\
-\midrule
-A1 & 012181 & 10200 & 2011-03-31 & 2011-06-09 & 2010 / 4 & -2.031 \\
-A2 & 012181 & 10200 & 2011-03-31 & 2011-06-09 & 2011 / 1 & -2.031 \\
-\midrule
-B1 & 012181 & 10200 & 2011-06-30 & 2011-07-27 & 2011 / 1 & -0.056 \\
-B2 & 012181 & 10200 & 2011-06-30 & 2011-07-27 & 2011 / 2 & -0.056 \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\smallskip
-两条记录使日收益重复、窗口编号错位；修复后按唯一公告计数，红色为计入窗口的收益。\par
-\noindent\begin{minipage}[t]{0.48\linewidth}
-\tablefont
-\setlength{\tabcolsep}{1pt}
-\blocktitle{rdq=2011-06-09}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llllll@{}}
-\toprule
- &  & & & \multicolumn{2}{c}{count} \\
-\cmidrule(l){5-6}
-permno & date & 记录 & abrd & Before & After \\
-\midrule
-10200 & 2011-06-07 & A1 & -0.002188 & $-4$ & \focusvalue{$-2$} \\
-10200 & 2011-06-07 & A2 & -0.002188 & $-3$ &  \\
-10200 & 2011-06-08 & A1 & 0.017529 & \focusvalue{$-2$} & \focusvalue{$-1$} \\
-10200 & 2011-06-08 & A2 & 0.017529 & \focusvalue{$-1$} &  \\
-10200 & 2011-06-09 & A1 & -0.032800 & \focusvalue{$0$} & \focusvalue{$0$} \\
-10200 & 2011-06-09 & A2 & -0.032800 & \focusvalue{$1$} &  \\
-10200 & 2011-06-10 & A1 & 0.013700 & $2$ & \focusvalue{$1$} \\
-10200 & 2011-06-10 & A2 & 0.013700 & $3$ &  \\
-\midrule
-10200 & ABR & & & \focusvalue{-0.030542} & \focusvalue{-0.003759} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}\hfill\begin{minipage}[t]{0.48\linewidth}
-\tablefont
-\setlength{\tabcolsep}{1pt}
-\blocktitle{rdq=2011-07-27}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llllll@{}}
-\toprule
- &  & & & \multicolumn{2}{c}{count} \\
-\cmidrule(l){5-6}
-permno & date & 记录 & abrd & Before & After \\
-\midrule
-10200 & 2011-07-25 & B1 & 0.004097 & $-4$ & \focusvalue{$-2$} \\
-10200 & 2011-07-25 & B2 & 0.004097 & $-3$ &  \\
-10200 & 2011-07-26 & B1 & 0.019605 & \focusvalue{$-2$} & \focusvalue{$-1$} \\
-10200 & 2011-07-26 & B2 & 0.019605 & \focusvalue{$-1$} &  \\
-10200 & 2011-07-27 & B1 & 0.014824 & \focusvalue{$0$} & \focusvalue{$0$} \\
-10200 & 2011-07-27 & B2 & 0.014824 & \focusvalue{$1$} &  \\
-10200 & 2011-07-28 & B1 & -0.026470 & $2$ & \focusvalue{$1$} \\
-10200 & 2011-07-28 & B2 & -0.026470 & $3$ &  \\
-\midrule
-10200 & ABR & & & \focusvalue{0.068858} & \focusvalue{0.012056} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\medskip
+%======================================================================
+\Needspace{30mm}
+\section*{三、RE（\texttt{myre.py}）}
 
-\noindent\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{2pt}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llllll@{}}
-\toprule
- &  & & & \multicolumn{2}{c}{abr} \\
-\cmidrule(l){5-6}
-permno & date & jdate & rdq & Before & After \\
-\midrule
-10200 & 2011-05-31 & 2011-04-30 & 2011-02-09 & -0.081002 & \focusvalue{-0.081002} \\
-10200 & 2011-06-30 & 2011-05-31 & 2011-02-09 & -0.081002 & \focusvalue{-0.081002} \\
-10200 & 2011-07-31 & 2011-06-30 & 2011-06-09 & \focusvalue{-0.030542} & \focusvalue{-0.003759} \\
-10200 & 2011-08-31 & 2011-07-31 & 2011-07-27 & \focusvalue{0.068858} & \focusvalue{0.012056} \\
-10200 & 2011-09-30 & 2011-08-31 & 2011-07-27 & \focusvalue{0.068858} & \focusvalue{0.012056} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
+RE 是这次问题最严重的指标，main 有三处错误叠在一起：
 
-\par\medskip
-\Needspace{16mm}
-\section*{七、RET}
-\subsection*{形成月与下一月收益匹配}
+\begin{enumerate}[leftmargin=1.5em,itemsep=1pt]
+\item \textbf{滞后顺序被打乱。}\texttt{unique()} 默认不保留行序，随后的 \texttt{cum\_count} 和 \texttt{shift(1..6)} 实际上作用在随机顺序上。只把这一行改成 \texttt{maintain\_order=True}，main 的结果与按定义重算的值秩相关就从 0.33 升到 0.83。
+\item \textbf{混入 FY2。}数据同时保留了 FPI = 1 和 2，最后按 ticker 去重时有 10.2\% 的行（30,212 / 297,049）选中了下一财年的预测。HXZ 只用当前财年（FPI = 1）。
+\item \textbf{窗口晚一个月。}RE 记在快照月 $t$，预测的是 $t+1$ 月收益，所以应当包含 $t$ 月本身的修正（滞后 0 到 5），main 用的是滞后 1 到 6。HXZ 的公式是求和，main 用的是平均。
+\end{enumerate}
+
+\[\mathrm{RE}_t=\sum_{k=0}^{5}\frac{f_{t-k}-f_{t-k-1}}{p_{t-k-1}},\qquad\text{至少 4 个非空月度修正}.\]
+
+$f$ 是 FPI = 1 的一致预期均值，$p$ 是上月末价格。修正必须来自相邻的两个日历月；跨财年那个月的修正记为空，但前一财年最近几个月的修正仍留在六个月窗口内。
 
 \begin{ratebox}
-\ratecompare{修复前}{\textcolor{red!75!black}{0.0852\%}（3,152 / 3,700,512）}{修复后}{\textcolor{red!75!black}{0\%}（0 / 3,699,949）}
-\rateline{代码}{\texttt{chars\_ciz/impute\_rank\_output.py}\quad\textbf{参考}\quad HXZ（2020）§2.1：月末形成组合，使用下一月收益。}
+\rateline{修复前}{与按定义计算的 RE 秩相关 \focusvalue{0.31}；10.2\% 的行用了 FY2}
+\rateline{修复后}{只用 FPI = 1；按日历月取滞后 0--5 求和}
+\rateline{参考}{HXZ A.1.3}
 \end{ratebox}
 
-\noindent\begin{minipage}[t]{\linewidth}
-\blocktitle{原代码}
+\noindent\begin{minipage}[t]{0.48\linewidth}
+\blocktitle{修复前}
 \begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-pl.col('ret').shift(-1).over('permno')
+\begin{Verbatim}[fontsize=\codefont,breaklines=true]
+.unique(subset=['permno_fpedats',
+                'statpers'], keep='first')
+.shift(1..6).over('permno_fpedats')
+mean(l1 .. l6)
+\end{Verbatim}
+\end{codebox}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\linewidth}
+\blocktitle{修复后}
+\begin{codebox}
+\begin{Verbatim}[fontsize=\codefont,breaklines=true,commandchars=\\\{\}]
+filter(\codehl{fpi == '1'})
+revision 仅当 \codehl{上一快照是上个日历月}
+滞后 \codehl{0..5}，按月份匹配
+\codehl{sum}，要求 \codehl{>= 4} 个
 \end{Verbatim}
 \end{codebox}
 \end{minipage}\par\medskip
-\noindent\begin{minipage}[t]{\linewidth}
-\blocktitle{修复代码}
+
+\blocktitle{例：IBM 2017 年（FY2017，\texttt{fpedats} = 2017-12-31）}
+\begingroup\tablefont\setlength{\tabcolsep}{4pt}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lrrrr@{}}
+\toprule
+statpers & meanest & 月度修正 & RE（修复后） & RE（修复前） \\
+\midrule
+2017-02-16 & 13.79 & 0.000120 & 0.000054 & $-0.000094$ \\
+2017-03-16 & 13.79 & 0 & 0.000054 & $-0.000182$ \\
+2017-04-20 & 13.71 & $-0.000479$ & $-0.000360$ & \focusvalue{0.000054} \\
+2017-05-18 & 13.70 & $-0.000065$ & $-0.000425$ & $-0.000190$ \\
+2017-06-15 & 13.70 & 0 & $-0.000425$ & $-0.000249$ \\
+\bottomrule
+\end{tabular*}\endgroup
+
+4 月份修复前的值来自 FY2018 的预测（FY2 被选中）。修复后的 6 月值是 1--6 月的修正之和，1 月换财年、修正为空：$0.000120+0-0.000479-0.000065+0=-0.000424$。2 月的窗口是 2016 年 9 月到 2017 年 2 月，包含了 FY2016 最后几个月的修正。
+
+\blocktitle{HXZ A.1.3}
+\includegraphics[width=0.85\linewidth]{figures/ref-re.png}\par
+
+关于价格：HXZ 用 IBES 未调整数据再自行做拆股调整。这里继续用 IBES 调整后预测配 CRSP \texttt{prc/cfacpr}；两者都调整到同一（最新）股本口径，比例不变，不需要额外下载 WRDS 表。
+
+%======================================================================
+\Needspace{30mm}
+\section*{四、财务滞后：同一公司、对应期间（\texttt{functions.py}、\texttt{accounting.py}）}
+
+main 中年度、季度的所有滞后都是 \texttt{shift(k).over('permno')}，即``同一股票往前数 $k$ 行''。两种情况下会出错：股票换了 gvkey，拿到的是上一家公司的财报；中间缺一期，拿到的是更早的期间。JKP 的做法是按公司、按日历期间匹配。这里只加了一个十几行的 \texttt{lag()}，把所有财务 \texttt{shift} 换成它：
+
+\noindent\begin{minipage}[t]{0.48\linewidth}
+\blocktitle{修复前}
 \begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-.with_columns(pl.col('jdate').\codehl{dt.offset_by('1mo')}.dt.month_end().alias('date'))
-.join(returns, \codehl{on=['permno','date']}, how='left', \codehl{validate='m:1'})
+\begin{Verbatim}[fontsize=\codefont,breaklines=true]
+pl.col('atq').shift(4).over('permno')
 \end{Verbatim}
 \end{codebox}
-\end{minipage}
-\par\smallskip
-\blocktitle{HXZ §2.1，p.2025（PDF 7）：年度六月形成；季度非盈利信息滞后四个月}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\linewidth}
+\blocktitle{修复后}
+\begin{codebox}
+\begin{Verbatim}[fontsize=\codefont,breaklines=true,commandchars=\\\{\}]
+lag('atq', 4, 3)   # 4 个季度
+lag('at', 1, 12)   # 1 个财年
+# 同一 permno 且 \codehl{同一 gvkey}，
+# 期末相隔 k×months 个月（误差 < 一期）
+\end{Verbatim}
+\end{codebox}
+\end{minipage}\par\medskip
+
+允许不到一期的误差，是为了让变更财年末（约占年报的 0.4\%）时仍取上一财年，这与 main、GHZ 一致；整整缺一年则为空。\texttt{ttm4}（四季合计）和 \texttt{roavol} 也改用 \texttt{lag()}。
+
+\begin{ratebox}
+\rateline{2015--2021}{季度滞后类指标 99.7\% 的值不变；约 0.9\% 的行置空（年度 0.8\%）}
+\rateline{1968--1975}{季度 acc / agr / noa 的覆盖从 15.7k 行升到 71.6k 行：早期很多公司只在年末报总资产，按行 shift 落在了空值上}
+\rateline{参考}{JKP（公司内按期间匹配）}
+\end{ratebox}
+
+\blocktitle{例：permno 10253，gvkey 从 012200 换成 018290}
+2013-09-30 这一季，修复前 \texttt{agr} = 3.38，分子是新公司的资产，分母是四行之前旧公司的资产。修复后为空。样本中这类跨公司的 \texttt{agr} 共 716 行。
+
+%======================================================================
+\Needspace{30mm}
+\section*{五、NI：缺历史股数不能补 0}
+
+main 在取对数后 \texttt{fill\_null(0)}。上一期股数缺失时，结果变成 $\log(\text{当期股数})-0$，看上去像一个很大的增发。HXZ 的 NI 是两期拆股调整后股数之比的对数，任何一期缺失或非正都应为空。
+
+\[\mathrm{NI}=\log\frac{\texttt{csho}_t\cdot\texttt{ajex}_t}{\texttt{csho}_{t-1}\cdot\texttt{ajex}_{t-1}}\quad\text{（季度为 } t-4\text{）}.\]
+
+\begin{ratebox}
+\ratecompare{季度}{7.5\% 的值实为 $\log(\text{股数})$}{年度}{6.9\%}
+\rateline{参考}{HXZ A.3.10}
+\end{ratebox}
+
+\blocktitle{例：gvkey 034077，2019-03-31}
+一年前（2018-03-31）的 \texttt{cshoq} 缺失。修复前 NI $=\log 31.369 = 3.446$；修复后为空。
+
+\blocktitle{HXZ A.3.10}
+\includegraphics[width=0.85\linewidth]{figures/ref-ni.png}\par
+
+%======================================================================
+\Needspace{30mm}
+\section*{六、季度 ROA 与``提前更新 ibq''}
+
+main 在季度数据里有一段``让 ibq 尽量新''的代码：如果下一季已经公告，就把本行的 \texttt{ibq} 换成下一季的值，其他科目不变。结果是同一行里混了两个季度，比如 ROA $=\texttt{ibq}_{q+1}/\texttt{atq}_{q-1}$，EP、ROE、CHPM 也一样。这段代码已删除，所有季度科目统一用四个月滞后（HXZ 对非盈利季度数据的做法）。
+
+HXZ 对 ROA 单独规定了按公告日使用，所以 ROA 在输出时重新匹配：每个月取最近一次已公告的季度（RDQ 不晚于月末，且季末在六个月内）；没有 RDQ 时（主要是 1972 年前）退回四个月滞后，与 SUE 的早期处理一致。
+
+\[\mathrm{ROA}_q=\frac{\texttt{ibq}_q}{\texttt{atq}_{q-1}}.\]
+
+\begin{ratebox}
+\rateline{2015--2021}{ROA 覆盖不变；EP / CFP / ROE 有三到五成的行变化（不再提前混用下一季盈利）}
+\rateline{1968--1975}{早期季度资产常只有年末值，ROA / ROE / EP 的季度覆盖下降；这些空值在年季合并时由年度值补上}
+\rateline{参考}{HXZ A.4.3；HXZ §2.1（盈利按 RDQ，其他季度数据滞后四个月）}
+\end{ratebox}
+
 \includegraphics[width=0.85\linewidth]{figures/ref-timing.png}\par
+\includegraphics[width=0.85\linewidth]{figures/ref-roa.png}\par
 
-\begin{minipage}{\linewidth}
-\tablefont\setlength{\tabcolsep}{2pt}
+%======================================================================
+\Needspace{30mm}
+\section*{七、CINVEST}
 
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llllll@{}}
-\toprule
- & & \multicolumn{2}{c}{Before} & \multicolumn{2}{c}{After} \\
-\cmidrule(lr){3-4}\cmidrule(l){5-6}
-permno & jdate & date & ret & date & ret \\
-\midrule
-10028 & 2012-03-31 & \focusvalue{2012-11-30} & \focusvalue{-0.036581} & \focusvalue{2012-04-30} & \focusvalue{-0.096257} \\
-10051 & 2016-01-31 & \focusvalue{2018-09-30} & \focusvalue{-0.119239} & \focusvalue{2016-02-29} & \focusvalue{-0.045219} \\
-10353 & 2010-07-31 & \focusvalue{2015-07-31} & \focusvalue{0.042781} & \focusvalue{2010-08-31} & \focusvalue{-0.111475} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\smallskip
+GHZ 的 CINVEST 用本季 PP\&E 变化减去前三个季度的平均，需要当期和前四个季度都在。main 在前几期缺失时用剩下的项求平均，照样给出数值。现在要求同一公司的前四个季度都存在。
 
+\begin{ratebox}
+\rateline{2015--2021}{覆盖减少 4.3\%，其余值不变}
+\rateline{参考}{GHZ（Titman, Wei \& Xie 2004）}
+\end{ratebox}
+\includegraphics[width=0.85\linewidth]{figures/ref-cinvest.png}\par
+
+%======================================================================
+\Needspace{30mm}
 \section*{八、age}
-\subsection*{由财报条数改为历史覆盖月数}
-\begin{ratebox}
-\ratecompare{Before}{有效年度财报条数}{After}{数据库覆盖的日历月数}
-\rateline{代码}{\texttt{chars\_ciz/accounting.py}；\texttt{functions.py}（\texttt{add\_age}）}
-\rateline{参考}{\href{https://github.com/bkelly-lab/jkp-data/blob/83437be5124703a9f6df8e20eae51d9b9d4f78b1/src/jkp/data/aux_functions.py\#L7197}{JKP：firm\_age}，在月度公司匹配后独立计算。}
-\end{ratebox}
-\[
- t_0=\min\{s_{\mathrm{CRSP}}(\mathrm{permco}),\ s_{\mathrm{Acc}}(\mathrm{gvkey}),\ s_{\mathrm{ID}}(\mathrm{permno})\},
-\]
-\[
- \mathrm{age}_t=12\,[\operatorname{year}(t)-\operatorname{year}(t_0)]+\operatorname{month}(t)-\operatorname{month}(t_0).
-\]
-age 衡量可追溯的公司/证券历史。JKP 另用 \texttt{comp\_ret\_first}；本地无 \texttt{comp\_secm}/\texttt{comp\_g\_secd}，以 permno 首月代替。\par
-\blocktitle{原代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-pl.col('count').alias('age')
-\end{Verbatim}
-\end{codebox}
-\blocktitle{修复代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-first_date = \codehl{min(crsp_first, comp_acc_first, first_alt)}
-age = \codehl{12 *} (jdate.year - first_date.year) + \codehl{jdate.month - first_date.month}
-\end{Verbatim}
-\end{codebox}
-\par\medskip
-\blocktitle{JKP \texttt{aux\_functions.py}，第 7197--7206 行：age 为覆盖月数}
-\begin{codebox}
-\VerbatimInput[firstline=7197,lastline=7206,fontsize=\codefont,breaklines=true,breakanywhere=true]{reference_materials/JKP_aux_functions.py}
-\end{codebox}
-\begin{minipage}{\linewidth}
-\tablefont
-\blocktitle{财报条数改为覆盖月数}
-数据文件均为 \texttt{chars\_raw\_no\_impute.parquet}；Before：\texttt{data/processed}；After：\texttt{data/processed\_20261030}。\par\smallskip
 
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllll@{}}
-\toprule
-date & jdate & permno & Before（年频计数） & After（月） \\
-\midrule
-2023-01-31 & 2022-12-31 & 10026 & 37 & \focusvalue{456} \\
-2023-02-28 & 2023-01-31 & 10026 & 20 & \focusvalue{457} \\
-2023-03-31 & 2023-02-28 & 10026 & 20 & \focusvalue{458} \\
-2023-04-30 & 2023-03-31 & 10026 & 20 & \focusvalue{459} \\
-2023-05-31 & 2023-04-30 & 10026 & 20 & \focusvalue{460} \\
-\bottomrule
-\end{tabular*}
-\end{minipage}
-\par\smallskip
+GHZ 的 age 是公司在 Compustat 中的年数。main 用 \texttt{cum\_count().over('gvkey')} 计数，但计数发生在去重和排序之前，同一家公司的年龄会跳来跳去。现在按 gvkey、按 \texttt{datadate} 顺序对 Compustat 年报排名。
 
-\par\medskip
-\Needspace{16mm}
-\section*{九、通用：公司归属}
-\subsection*{公司切换：不能延用旧公司财报}
 \begin{ratebox}
-\ratecompare{修复前}{\textcolor{red!75!black}{0.4936\%}（15,479 / 3,136,020）}{修复后}{\textcolor{red!75!black}{0\%}（0 / 3,120,541）}
-\rateline{代码}{\texttt{chars\_ciz/accounting.py}；\texttt{chars\_ciz/impute\_rank\_output.py}\quad\textbf{参考}\quad JKP（按月检查 CCM 有效链接）}
+\ratecompare{修复前}{同一 permno/gvkey 内年龄下降 \focusvalue{13,695} 次}{修复后}{\focusvalue{0}}
 \end{ratebox}
 
-\begin{tabularx}{\linewidth}{@{}lX@{}}
+\blocktitle{例：permno 11581（样本从 2012 年开始，所以修复后从 1 数起）}
+\begingroup\tablefont
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lrrrrrrrr@{}}
 \toprule
-Ref & 查得的处理 \\
+年份 & 2012 & 2013 & 2014 & 2015 & 2016 & 2017 & 2018 & 2019 \\
 \midrule
-\href{https://theinvestmentcapm.com/uploads/1/2/2/6/122679606/houxuezhang2020rfs.pdf}{HXZ} & 未明确规定 gvkey 切换后是否延用旧财报。 \\
-\href{https://drive.google.com/file/d/0BwwEXkCgXEdRQWZreUpKOHBXOUU/view?resourcekey=0-1xjZ8fAc0sTybVC6RADDCA}{GHZ} & 财报截止日检查 CCM 后延用；未逐月核对公司，可能跨越切换日。 \\
-\href{https://github.com/OpenSourceAP/CrossSection/blob/9f053398c4995651d822e90d81526d0644c6f3e5/Signals/pyCode/DataDownloads/CompustatAnnual.py\#L211-L272}{CZ} & 财报截止日检查 CCM，滞后六个月并延用十二个月；可能跨越切换日。 \\
-\href{https://github.com/bkelly-lab/jkp-data/blob/83437be5124703a9f6df8e20eae51d9b9d4f78b1/src/jkp/data/aux_functions.py\#L603-L615}{JKP} & 按股票当月日期检查 CCM，再按当月 gvkey、月份匹配；采用此法。 \\
+修复前 & 3 & 8 & 4 & 1 & 7 & 6 & 10 & 5 \\
+修复后 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 \\
 \bottomrule
-\end{tabularx}
-\par\medskip
+\end{tabular*}\endgroup
 
-\Needspace{16mm}
-\blocktitle{原代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true]
-pl.all().forward_fill().over(['permno', 'datadate'])
-\end{Verbatim}
-\end{codebox}
-\par\medskip
-\blocktitle{修复代码}
-\begin{codebox}
-\begin{Verbatim}[fontsize=\codefont,breaklines=true,breakanywhere=true,commandchars=\\\{\}]
-(pl.col('linkdt').is_null() | (\codehl{pl.col('linkdt') <= pl.col('mthcaldt')})) &
-(pl.col('linkenddt').is_null() | (\codehl{pl.col('mthcaldt') <= pl.col('linkenddt')}))
-pl.when(\codehl{pl.col('gvkey') == pl.col('_current_gvkey')}).then(pl.col(v)).alias(v)
-\end{Verbatim}
-\end{codebox}\par\medskip
-\blocktitle{JKP \texttt{aux\_functions.py}，第 603--615 行：以股票日期检查 CCM 链接}
-\begin{codebox}
-\VerbatimInput[firstline=603,lastline=615,fontsize=\codefont,breaklines=true,breakanywhere=true]{reference_materials/JKP_aux_functions.py}
-\end{codebox}
-\[\mathrm{ADM}=\frac{\texttt{xad}}{\texttt{me}}.\]
+%======================================================================
+\Needspace{30mm}
+\section*{九、其他小修}
 
-\par\medskip
+\begin{itemize}
+\item \textbf{下月收益}（\texttt{impute\_rank\_output.py}）：\texttt{shift(-1)} 取的是下一行，股票中断时会把几个月后的收益当成下月收益。现在只有下一行恰好是下一个日历月才保留。样本中 98 / 433,939 行受影响。
+\item \textbf{TTM12}（股息率 \texttt{dy}）：要求连续 12 个日历月。
+\item \textbf{月度股息 \texttt{mdivpay}}：只在上一行是上个月时使用上月价格和拆股因子。
+\end{itemize}
 
-新公司 2021 年 xad 缺失，ADM 置空；切换月 gvkey 由 163806 改为 040116。\par
-本表直接读取两份最终未填补数据：Before 为 \texttt{data/processed}，After 为 \texttt{data/processed\_20261030}，不重算任一侧。旧 age 是年度财报累计记录数（年频计数），新 age 是历史覆盖月数，不能直接比较其大小。\par\smallskip
-\noindent\begin{minipage}{\linewidth}
-\tablefont\fontsize{8.8}{13.5}\selectfont\setlength{\tabcolsep}{1pt}
+%======================================================================
+\Needspace{30mm}
+\section*{十、撤回的修改}
 
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllllllll@{}}
+原分支还做了下面这些改动。它们要么超出 HXZ / GHZ / JKP 的要求，要么带来的差异很小却需要大量代码或新的数据下载，所以撤回。
+
+\begingroup\tablefont\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.27\linewidth}>{\raggedright\arraybackslash}X@{}}
 \toprule
- &  &  & \multicolumn{3}{c}{Before} & \multicolumn{3}{c}{After} \\
-\cmidrule(lr){4-6}\cmidrule(l){7-9}
-permno & date & jdate & gvkey & age（年频计数） & adm & gvkey & age（月） & adm \\
+改动 & 撤回原因 \\
 \midrule
-12350 & 2021-11-30 & 2021-10-31 & 163806 & \focusvalue{3} & 0.003406 & 163806 & \focusvalue{142} & 0.003406 \\
-12350 & 2021-12-31 & 2021-11-30 & \focusvalue{163806} & \focusvalue{3} & \focusvalue{0.001203} & \focusvalue{040116} & \focusvalue{133} & \focusvalue{NULL} \\
-12350 & 2022-01-31 & 2021-12-31 & \focusvalue{163806} & \focusvalue{3} & \focusvalue{0.001781} & \focusvalue{040116} & \focusvalue{134} & \focusvalue{NULL} \\
-12350 & 2022-02-28 & 2022-01-31 & \focusvalue{163806} & \focusvalue{3} & \focusvalue{0.002590} & \focusvalue{040116} & \focusvalue{135} & \focusvalue{NULL} \\
-12350 & 2022-03-31 & 2022-02-28 & \focusvalue{163806} & \focusvalue{3} & \focusvalue{0.003776} & \focusvalue{040116} & \focusvalue{136} & \focusvalue{NULL} \\
-12350 & 2022-04-30 & 2022-03-31 & \focusvalue{163806} & \focusvalue{3} & \focusvalue{0.000258} & \focusvalue{040116} & \focusvalue{137} & \focusvalue{NULL} \\
-12350 & 2022-05-31 & 2022-04-30 & \focusvalue{163806} & \focusvalue{3} & \focusvalue{0.000583} & \focusvalue{040116} & \focusvalue{138} & \focusvalue{NULL} \\
-12350 & 2023-02-28 & 2023-01-31 & 040116 & \focusvalue{2} & \focusvalue{0.007568} & 040116 & \focusvalue{147} & \focusvalue{NULL} \\
-12350 & 2023-03-31 & 2023-02-28 & 040116 & \focusvalue{2} & \focusvalue{0.010874} & 040116 & \focusvalue{148} & \focusvalue{NULL} \\
+年度数据改为次年 6 月形成，并按财年屏蔽 & HXZ 的 6 月形成针对年度排序组合；本面板按月更新，沿用四个月滞后（JKP 做法）。该改动使所有年度指标约 28\% 的值改变。 \\
+age 改为 JKP 月度年龄 & 改变了指标定义；GHZ 的 age 修正计数即可。 \\
+ABR 改用 \texttt{vwretd}（新 WRDS 表） & \texttt{mktrf+rf} 即 CRSP 价值加权市场收益；不必新增下载。 \\
+ABR 要求四天收益齐全、按公告去重、按月核对 CCM & HXZ 未作要求；数值差异约 0.05\%，却额外置空约 1.6\% 的行。 \\
+RE 改用 IBES 未调整数据和 CRSP 日度拆股因子 & 调整后数据配 CRSP 调整价格口径一致；不必新增下载。 \\
+\texttt{pad\_periods}、\texttt{calendar\_lag}、\texttt{\_lag\_valid\_k}、公告日屏蔽 & 由一个 \texttt{lag()} 代替；四个月滞后本身已保证数据可得。 \\
+AGR / CHTX / NI / CHCSHO 在输出时用 DuckDB 从未过滤季度数据重算 & 数值与就地计算完全相同，只多约 2.7\% 覆盖，却要约 70 行代码。 \\
+年季合并按月核对 CCM 公司（\texttt{company\_months}） & main 已按 gvkey 合并年季数据；跨公司滞后已在 \texttt{lag()} 中处理。 \\
+SUE 丢弃没有 RDQ 的历史季度 & HXZ 只要求当期季度有 RDQ；历史季度（如上市前）照常参与标准差。 \\
 \bottomrule
-\end{tabular*}
-\end{minipage}
+\end{tabularx}\endgroup
 
-\par\medskip
+\blocktitle{原分支自身的问题}
+原分支的 \texttt{chars\_std} 在月度展开后的数据上按期间查找滞后，而 \texttt{rsup} 含月度市值，同一季度内各月取值不同，被判为``冲突''后置空。结果 \texttt{sgrvol} 覆盖下降 93\%，\texttt{m8} 与原值几乎无关。本分支的 \texttt{sgrvol} 保持 main 的算法不变。
+
 \end{document}

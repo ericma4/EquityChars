@@ -2,7 +2,6 @@ import polars as pl
 import numpy as np
 from tqdm import tqdm
 import re
-from pathlib import Path
 
 INPUT_PATH = "../data/raw/"
 OUTPUT_PATH = "../data/processed/"
@@ -279,210 +278,53 @@ def ffi12():
 #######################################################################################################################
 
 
-def company_months(keys, input_path):
-    """Resolve monthly CCM companies; ambiguous simultaneous links stay null."""
-    links = pl.read_parquet(Path(input_path) / 'ccm.parquet').with_columns(
-        pl.col('permno').cast(pl.Int64))
-    dates = pl.read_parquet(Path(input_path) / 'crsp_msf.parquet',
-        columns=['permno', 'mthcaldt']).with_columns(
-        pl.col('permno').cast(pl.Int64),
-        pl.col('mthcaldt').dt.month_end().alias('jdate'))
-    active = (keys.select('permno', 'jdate').unique()
-        .join(dates, on=['permno', 'jdate'], how='left', validate='1:1')
-        .join(links, on='permno', how='inner')
-        .filter(
-            (pl.col('linkdt').is_null() | (pl.col('linkdt') <= pl.col('mthcaldt'))) &
-            (pl.col('linkenddt').is_null() | (pl.col('mthcaldt') <= pl.col('linkenddt')))))
-    return active.group_by('permno', 'jdate').agg(
-        pl.when(pl.col('gvkey').drop_nulls().n_unique() == 1)
-        .then(pl.col('gvkey').drop_nulls().first()).alias('_current_gvkey'))
+# 20261030fix-A financial lag must come from the same company and the period k reports earlier.
+# Row shifts over permno could reach a predecessor gvkey or skip a missing period.
+def lag(series, k, months):
+    """Value of `series` k periods earlier for the same permno/gvkey, else null.
 
-
-# 20261030fix-JKP firm_age uses current monthly company links and unfiltered coverage histories.
-def add_age(frame, input_path):
-    """JKP coverage age in months, using the available CRSP/funda histories.
-
-    Implements JKP's min(crsp_first, comp_acc_first, first_alt). JKP also uses
-    comp_ret_first from Compustat security/global returns (comp_secm,
-    comp_g_secd), which are not available locally, so age is an approximation.
-    Compustat accounting starts are backdated to the prior Dec 31 as in JKP.
+    Use on one-row-per-report panels (annual: months=12, quarterly: months=3). The earlier
+    report must end k*months months before, give or take less than one period, so a
+    fiscal-year-end change still counts as the prior year but a missing year does not.
     """
-    crsp = pl.read_parquet(
-        Path(input_path) / 'crsp_msf.parquet', columns=['permno', 'permco', 'mthcaldt']
-    ).with_columns(pl.col('permno').cast(pl.Int64))
-    current = crsp.select(
-        'permno', pl.col('mthcaldt').dt.month_end().alias('jdate'), 'permco',
-    )
-    crsp_start = crsp.group_by('permco').agg(
-        pl.col('mthcaldt').min().alias('crsp_first')
-    )
-    security_start = crsp.group_by('permno').agg(
-        pl.col('mthcaldt').min().dt.month_end().alias('first_alt')
-    )
-    accounting = (pl.read_parquet(Path(input_path) / 'comp_funda.parquet',
-        columns=['gvkey', 'datadate'])
-        .group_by('gvkey').agg(pl.col('datadate').min().alias('_first'))
-        .select('gvkey', pl.date(pl.col('_first').dt.year() - 1, 12, 31).alias('comp_acc_first')))
-    first_date = pl.min_horizontal('crsp_first', 'comp_acc_first', 'first_alt')
-    result = (
-        frame.select('permno', 'jdate')
-        .join(company_months(frame.select('permno', 'jdate'), input_path),
-              on=['permno', 'jdate'], how='left', validate='m:1', maintain_order='left')
-        .rename({'_current_gvkey': 'gvkey'})
-        .join(current, on=['permno', 'jdate'], how='left', validate='m:1', maintain_order='left')
-        .join(crsp_start, on='permco', how='left', validate='m:1', maintain_order='left')
-        .join(accounting, on='gvkey', how='left', validate='m:1', maintain_order='left')
-        .join(security_start, on='permno', how='left', validate='m:1', maintain_order='left')
-        .with_columns(
-            ((pl.col('jdate').dt.year() - first_date.dt.year()) * 12
-             + pl.col('jdate').dt.month() - first_date.dt.month()).cast(pl.Int32).alias('age')
-        )
-    )
-    return frame.with_columns(result['age'])
-
-
-def attach_report_availability(frame, input_path):
-    """Attach quarterly earnings announcement dates from Compustat."""
-    dates = (pl.read_parquet(Path(input_path) / 'comp_fundq.parquet',
-        columns=['gvkey', 'datadate', 'rdq'])
-        .group_by('gvkey', 'datadate')
-        .agg(pl.col('rdq').max().alias('_source_available_date')))
-    return frame.join(dates, on=['gvkey', 'datadate'], how='left',
-        validate='m:1', maintain_order='left')
-
-
-# 20261030fix-Share annual/quarterly announcement checks while retaining market observations.
-def guard_financial_announcements(chars, input_path, frequency='quarterly'):
-    """Mask unavailable financials by frequency while retaining market observations."""
-    if frequency == 'annual':
-        # 20261030fix-HXZ Section 2.1 uses June formation; no annual public-date field is available locally.
-        fiscal_year = pl.col('jdate').dt.year() - 1 - (pl.col('jdate').dt.month() < 6).cast(pl.Int32)
-        result = chars
-        bad = (pl.col('datadate').dt.year() != fiscal_year).fill_null(False)
-    else:
-        result = attach_report_availability(chars, input_path)
-        bad = ((pl.col('_source_available_date') <= pl.col('datadate')) |
-               (pl.col('_source_available_date') >= pl.col('jdate'))).fill_null(False)
-    protected = {
-        'gvkey', 'permno', 'datadate', 'jdate', 'sic', 'primaryexch',
-        'conditionaltype', 'tradingstatusflg', 'sharetype', 'securitytype',
-        'securitysubtype', 'usincflg', 'issuertype', 'ticker', 'conm', 'comnam',
-        'prc', 'shrout', 'ret', 'retx', 'mom1m', 'mom6m', 'mom12m', 'mom60m',
-        'mom36m', 'seas1a', 'me', 'size_grp', 'turn', 'dolvol', 'dy', 'indmom',
-        '_source_available_date',
-    }
-    fields = [x for x in chars.columns if x not in protected]
-    return result.with_columns([pl.when(~bad).then(pl.col(x)).alias(x) for x in fields]).drop(
-        '_source_available_date', strict=False
-    )
-
-
-# 20261030fix-Pad reporting periods once so ordinary financial lags can use shift.
-# Fiscal-month groups keep annual shifts 12 months apart and quarterly shifts 3 months apart.
-REPORT_KEYS = ['permno', 'gvkey', '_period_phase']
-
-
-def pad_periods(frame, months):
-    """Insert null periods within each stock/company and fiscal-month sequence."""
-    columns = frame.columns
-    frame = frame.with_columns(
-        pl.col('datadate').dt.month_end().alias('_period_date'),
-        (pl.col('datadate').dt.month() % months).alias('_period_phase'),
-        pl.lit(True).alias('_observed'),
-    )
-    grid = (frame.group_by(REPORT_KEYS).agg(
-        pl.date_ranges(pl.col('_period_date').min(), pl.col('_period_date').max(),
-                       interval=f'{months}mo').alias('_period_date'))
-        .explode('_period_date')
-        .with_columns(pl.col('_period_date').dt.month_end()))
-    frame = (grid.join(frame, on=REPORT_KEYS + ['_period_date'], how='left', validate='1:1')
-        .with_columns(
-            pl.coalesce('datadate', '_period_date').alias('datadate'),
-            pl.coalesce('jdate', pl.date(pl.col('_period_date').dt.year() + 1, 6, 30)
-                if months == 12 else pl.col('_period_date').dt.offset_by('4mo').dt.month_end()).alias('jdate'),
-            pl.col('_observed').fill_null(False),
-        ).sort(REPORT_KEYS + ['datadate']))
-    # 20261030fix-Missing periods and announcements not yet public cannot supply a lag.
-    valid = [pl.col('_observed').alias('_lag_valid_0')] if months == 3 else []
-    for k in range(1, 16 if months == 3 else 1):
-        released = pl.col('_source_available_date').shift(k).over(REPORT_KEYS, order_by='datadate')
-        period = pl.col('_period_date').shift(k).over(REPORT_KEYS, order_by='datadate')
-        valid.append((pl.col('_observed').shift(k).over(REPORT_KEYS, order_by='datadate') &
-            (released.is_null() | ((released > period) & (released < pl.col('jdate')))))
-            .fill_null(False).alias(f'_lag_valid_{k}'))
-    return frame.with_columns(valid).drop('_period_date').select(*columns, pl.exclude(columns))
-
-
-def calendar_lag(frame, column, periods, months, history=None):
-    """Look up exact prior company periods; gaps/conflicts stay null, order is preserved."""
-    if periods < 0:
-        raise ValueError("Financial history must not look forward")
-    if periods == 0 and history is None:
-        return frame[column]
-    source = frame if history is None else history
-    keys = ['permno', 'gvkey'] if 'permno' in source.columns else ['gvkey']
-    period = '_lag_period'
-    availability = '_source_available_date' in source.columns
-    history = (source.select(*keys,
-        *([pl.col('_source_available_date')] if availability else []),
-        pl.col('datadate').dt.month_end().alias(period),
-        pl.col(column).alias('_lag_value'))
-        .group_by(*keys, period).agg(
-            pl.when(pl.col('_lag_value').drop_nulls().n_unique() <= 1)
-            .then(pl.col('_lag_value').drop_nulls().first()).alias('_lag_value'),
-            *([pl.col('_source_available_date').max().alias('_lag_available_date')] if availability else [])))
-    current = frame.select(*keys,
-        *([pl.col('jdate')] if availability else []),
-        pl.col('datadate').dt.offset_by(f'-{months * periods}mo')
-        .dt.month_end().alias(period))
-    result = current.join(history, on=keys + [period], how='left',
-        validate='m:1', maintain_order='left')
-    if availability:
-        result = result.with_columns(pl.when(
-            pl.col('_lag_available_date').is_null() |
-            ((pl.col('_lag_available_date') > pl.col(period)) &
-             (pl.col('_lag_available_date') < pl.col('jdate')))
-        ).then(pl.col('_lag_value')).alias('_lag_value'))
-    return result['_lag_value'].rename(column)
+    prev = lambda e, j: e.shift(j).over('permno', order_by='datadate')
+    month = pl.col('datadate').dt.year() * 12 + pl.col('datadate').dt.month()
+    # The target is at most k rows back (fewer when reports are missing in between).
+    return pl.coalesce([
+        pl.when((prev(pl.col('gvkey'), j) == pl.col('gvkey')) &
+                ((month - prev(month, j) - k * months).abs() < months))
+        .then(prev(pl.col(series), j))
+        for j in range(1, k + 1)
+    ])
 
 
 def ttm4(series, df):
-    """Return a four-quarter sum expression for the panel from pad_periods."""
-    # 20261030fix-Keep company/fiscal groups and announcement checks around ordinary shifts.
-    return pl.when(pl.all_horizontal([f'_lag_valid_{k}' for k in range(4)])).then(
-        pl.col(series) +
-        pl.col(series).shift(1).over(REPORT_KEYS, order_by='datadate') +
-        pl.col(series).shift(2).over(REPORT_KEYS, order_by='datadate') +
-        pl.col(series).shift(3).over(REPORT_KEYS, order_by='datadate')
-    )
+    """
+    Calculate trailing 4-quarter sum (TTM4) using Polars.
+
+    :param series: variables' name (string)
+    :param df: polars dataframe (used to compute the result as a Series)
+    :return: polars Expression that can be used in with_columns()
+
+    Example: data_rawq.with_columns([ttm4('ibq', data_rawq).alias('ibq4')])
+    """
+    # 20261030fix-Sum four consecutive quarters of the same company (null across gaps).
+    return pl.col(series) + lag(series, 1, 3) + lag(series, 2, 3) + lag(series, 3, 3)
 
 
 def ttm12(series, df):
-    """Return a sum of 12 consecutive stock months, including the current month.
-
-    Input has one row per permno/jdate. Missing months or values leave TTM null.
     """
-    # 20261030fix-JKP expands monthly calendars; row shifts alone can span missing months.
-    month = pl.col('jdate').dt.year() * 12 + pl.col('jdate').dt.month()
-    complete = pl.all_horizontal([
-        month - month.shift(k).over('permno', order_by='jdate') == k
-        for k in range(1, 12)
-    ])
-    return pl.when(complete).then(
-        pl.col(series) +
-        pl.col(series).shift(1).over('permno', order_by='jdate') +
-        pl.col(series).shift(2).over('permno', order_by='jdate') +
-        pl.col(series).shift(3).over('permno', order_by='jdate') +
-        pl.col(series).shift(4).over('permno', order_by='jdate') +
-        pl.col(series).shift(5).over('permno', order_by='jdate') +
-        pl.col(series).shift(6).over('permno', order_by='jdate') +
-        pl.col(series).shift(7).over('permno', order_by='jdate') +
-        pl.col(series).shift(8).over('permno', order_by='jdate') +
-        pl.col(series).shift(9).over('permno', order_by='jdate') +
-        pl.col(series).shift(10).over('permno', order_by='jdate') +
-        pl.col(series).shift(11).over('permno', order_by='jdate')
-    )
+    Calculate trailing 12-month sum (TTM12) using Polars.
 
+    Example: crsp_mom.with_columns([(ttm12('mdivpay', crsp_mom) / pl.col('me')).alias('dy')])
+    """
+    # 20261030fix-JKP: require 12 consecutive calendar months; row shifts can span missing months.
+    month = pl.col('jdate').dt.year() * 12 + pl.col('jdate').dt.month()
+    complete = month - month.shift(11).over('permno', order_by='jdate') == 11
+    total = pl.col(series)
+    for i in range(1, 12):
+        total = total + pl.col(series).shift(i).over('permno', order_by='jdate')
+    return pl.when(complete).then(total)
 
 def fillna_atq(df_q: pl.DataFrame, df_a: pl.DataFrame):
     """

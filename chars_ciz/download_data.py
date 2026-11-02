@@ -212,16 +212,6 @@ def get_tables_config(start_date='2020-01-01'):
             """
         },
 
-        # 20261030fix-HXZ A.1.2: download vwretd from the WRDS CIZ daily market-index table.
-        'crsp_market': {
-            'output': os.path.join(OUTPUT_PATH, 'crsp_market.parquet'),
-            'query': f"""
-                SELECT dlycaldt AS date, vwretd
-                FROM crsp.wrds_dailyindexret_query
-                WHERE dlycaldt >= ''{start_date}''
-            """
-        },
-
         'ibes': {
             'output': os.path.join(OUTPUT_PATH, 'ibes.parquet'),
             'query': """
@@ -236,27 +226,7 @@ def get_tables_config(start_date='2020-01-01'):
                 AND CURCODE=''USD''
                 AND fpi in (''1'',''2'')
             """
-        },
-        # 20261030fix-HXZ A.1.3: unadjusted forecasts and IBES prices must use the same per-share basis.
-        'ibes_unadjusted': {
-            'output': os.path.join(OUTPUT_PATH, 'ibes_unadjusted.parquet'),
-            'query': """
-                SELECT u.ticker, u.statpers, u.meanest, u.fpedats,
-                       s.anndats_act, s.curr_act, u.fpi, u.medest,
-                       p.price, p.prdays
-                FROM ibes.statsumu_epsus u
-                LEFT JOIN ibes.statsum_epsus s
-                  ON u.ticker=s.ticker AND u.statpers=s.statpers
-                 AND u.fpedats=s.fpedats AND u.fpi=s.fpi
-                 AND s.measure=''EPS'' AND s.curcode=''USD''
-                LEFT JOIN ibes.actpsumu_epsus p
-                  ON u.ticker=p.ticker AND u.statpers=p.statpers AND p.curr_price=''USD''
-                WHERE u.measure=''EPS'' AND u.curcode=''USD''
-                  AND u.fpi IN (''1'',''2'')
-                  /* 20261030fix-FY1 remains valid after fiscal year end until earnings are announced. */
-                  AND (s.anndats_act IS NULL OR u.statpers<s.anndats_act)
-            """
-        },
+        }
     }
 
 # ====================================================================================================
