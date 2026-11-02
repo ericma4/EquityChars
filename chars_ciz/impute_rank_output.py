@@ -114,7 +114,12 @@ def _reconcile(df_a, df_q):
     # differ, the side with the newer report is the current company and the other side is blanked.
     df = df_a_sel.join(df_q_sel, on=['permno', 'jdate'], how='left')
     switch = pl.col('gvkey').is_not_null() & pl.col('q_gvkey').is_not_null() & (pl.col('gvkey') != pl.col('q_gvkey'))
-    stale_a = switch & (pl.col('a_datadate') < pl.col('q_datadate'))
+    # 20261030fix-CZ: an annual report is used for 12 months after it becomes available
+    # (datadate + 4 months), i.e. at most 15 months after the fiscal year end.
+    a_age = (pl.col('jdate').dt.year() - pl.col('a_datadate').dt.year()) * 12 + \
+            pl.col('jdate').dt.month() - pl.col('a_datadate').dt.month()
+    switched_a = switch & (pl.col('a_datadate') < pl.col('q_datadate'))
+    stale_a = switched_a | (a_age > 15).fill_null(False)
     stale_q = switch & (pl.col('q_datadate') < pl.col('a_datadate'))
     a_fields = [c for c in df.columns if c.startswith('a_') or c in A_ONLY_VARS]
     q_fields = [c for c in df.columns if c.startswith('q_') and c != 'q_gvkey'] + \
@@ -122,7 +127,7 @@ def _reconcile(df_a, df_q):
     df = df.with_columns(
         [pl.when(~stale_a).then(pl.col(c)).alias(c) for c in a_fields] +
         [pl.when(~stale_q).then(pl.col(c)).alias(c) for c in q_fields] +
-        [pl.when(stale_a | pl.col('gvkey').is_null()).then(pl.col('q_gvkey')).otherwise(pl.col('gvkey')).alias('gvkey')]
+        [pl.when(switched_a | pl.col('gvkey').is_null()).then(pl.col('q_gvkey')).otherwise(pl.col('gvkey')).alias('gvkey')]
     ).drop('q_gvkey')
 
     # reconcile each overlapping variable (skip datadate)
