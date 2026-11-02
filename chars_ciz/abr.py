@@ -1,11 +1,11 @@
-# Calculate HSZ Replicating Anomalies
+# Calculate HXZ Replicating Anomalies
 # ABR: Cumulative abnormal stock returns around earnings announcements
 # Optimized version with Polars + DuckDB
 
 import polars as pl
 import duckdb
 import os
-from functions import INPUT_PATH, OUTPUT_PATH
+from functions import company_months, INPUT_PATH, OUTPUT_PATH
 
 num_threads = max(1, os.cpu_count() // 2)
 
@@ -65,6 +65,8 @@ trading_days = (
 # Find the closest trading day (rdq_trad) on or after rdq
 ccm1 = (
     ccm_merged
+    # 20261030fix-Exclude records without an announcement date before constructing event windows.
+    .filter(pl.col("rdq").is_not_null() & (pl.col("rdq") > pl.col("datadate")))
     .sort("rdq")
     .join_asof(
         trading_days,
@@ -79,15 +81,17 @@ ccm1 = (
 #############################
 #    CRSP abnormal return   #
 #############################
-# Load CRSP daily data with Fama-French market return (mktrf + rf)
+# 20261030fix-HXZ A.1.2: use CRSP vwretd, not the distinct FF Mkt-RF + RF series.
 crsp_d = (
     pl.scan_parquet(INPUT_PATH + "crsp_dsf.parquet")
     .select([
         pl.col("permno").cast(pl.Int64),
         pl.col("dlycaldt").cast(pl.Date).alias("date"),
         pl.col("dlyret").alias("ret"),
-        (pl.col("mktrf") + pl.col("rf")).alias("mkt"),
     ])
+    .join(pl.scan_parquet(INPUT_PATH + "crsp_market.parquet").select(
+        "date", pl.col("vwretd").alias("mkt")),
+        on="date", how="left", validate="m:1")
     .collect()
 )
 
@@ -113,22 +117,26 @@ con = duckdb.connect(":memory:")
 try:
     con.execute(f"SET threads TO {num_threads};")
 
+    # 20261030fix-One announcement can carry multiple fiscal labels; keep one event row.
+    ccm1 = (ccm1
+        .sort(["permno", "rdq_trad", "datadate", "rdq", "fyearq", "fqtr"],
+              descending=[False, False, True, True, True, True])
+        .unique(subset=["permno", "rdq_trad"], keep="first"))
     con.register("ccm_data", ccm1.to_arrow())
     con.register("crsp_data", crsp_d.to_arrow())
+    # 20261030fix-Use the full trading calendar before checking return completeness.
+    con.register("calendar_data", trading_days.to_arrow())
 
     df = con.execute("""
         SELECT a.gvkey, a.permno, a.datadate, a.fyearq, a.fqtr,
-               a.rdq, a.rdq_trad, b.date, b.abrd
+               a.rdq, a.rdq_trad, c.date, b.abrd
         FROM ccm_data a
-        LEFT JOIN crsp_data b
-        ON a.permno = b.permno
-        AND a.minus10d <= b.date
-        AND b.date <= a.plus5d
-        ORDER BY a.permno, a.rdq_trad, b.date
+        JOIN calendar_data c ON a.minus10d<=c.date AND c.date<=a.plus5d
+        LEFT JOIN crsp_data b ON a.permno=b.permno AND c.date=b.date
+        ORDER BY a.permno, a.rdq_trad, c.date
     """).pl()
 
-    # Filter out missing returns
-    df = df.filter(pl.col("abrd").is_not_null())
+    # 20261030fix-Keep calendar days fixed; leave ABR null if any return in [-2,+1] is missing.
 
     ###############################
     #    Count trading days       #
@@ -171,9 +179,14 @@ try:
     df = df.filter((pl.col("count") >= -2) & (pl.col("count") <= 1))
 
     # Sum abnormal returns by group
+    # 20261030fix-Require returns for all four distinct trading days before computing ABR.
     df_abr = (
         df.group_by(["permno", "rdq_trad"])
-        .agg(pl.col("abrd").sum().alias("abr"))
+        .agg(
+            pl.when(pl.col("abrd").count() == 4)
+            .then(pl.col("abrd").sum())
+            .alias("abr")
+        )
     )
 
     # Join ABR back and keep only count == 1 rows (rdq + 1 day)
@@ -187,31 +200,36 @@ try:
     ###############################
     #    Populate to monthly      #
     ###############################
-    # Make sure the abr is used between rdq_plus_1d and plus12m
+    # Make sure the abr is used between rdq_plus_1d and plus6m
     # Get monthly dates from CRSP monthly file
     crsp_msf = (
         pl.scan_parquet(INPUT_PATH + "crsp_msf.parquet")
-        .select(pl.col("mthcaldt").cast(pl.Date).alias("date"))
-        .unique()
+        .select(pl.col("permno").cast(pl.Int64), pl.col("mthcaldt").alias("date"))
         .collect()
     )
+    # 20261030fix-JKP monthly CCM matching: a predecessor's announcement must not survive a company change.
+    crsp_msf = (crsp_msf.with_columns(pl.col("date").dt.month_end().alias("jdate"))
+        .join(company_months(crsp_msf.select("permno", pl.col("date").dt.month_end().alias("jdate")), INPUT_PATH),
+              on=["permno", "jdate"], how="left", validate="m:1").drop("jdate"))
 
-    # Add 12-month forward bound
+    # 20261030fix-HXZ A.1.2: the fiscal quarter must end within six months before formation.
     df = df.with_columns(
-        pl.col("datadate").dt.offset_by("12mo").dt.month_end().alias("plus12m")
+        pl.col("datadate").dt.offset_by("6mo").dt.month_end().alias("plus6m")
     )
 
     # Use DuckDB for the range join (reuse connection)
     con.register("df_data", df.to_arrow())
     con.register("msf_data", crsp_msf.to_arrow())
 
+    # 20261030fix-Sort announcements by descending rdq and require the event window to be complete.
     df = con.execute("""
         SELECT a.gvkey, a.permno, a.datadate, a.rdq, a.rdq_plus_1d, a.abr, b.date
         FROM df_data a
         LEFT JOIN msf_data b
-        ON a.rdq_plus_1d < b.date
-        AND a.plus12m >= b.date
-        ORDER BY a.permno, b.date, a.datadate DESC
+        ON a.permno=b.permno AND a.gvkey=b._current_gvkey
+        AND a.rdq_plus_1d < b.date
+        AND a.plus6m >= b.date
+        ORDER BY a.permno, b.date, a.datadate DESC, a.rdq DESC
     """).pl()
 finally:
     con.close()

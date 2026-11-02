@@ -5,7 +5,7 @@ Logic:
 1. Load chars_a_raw.parquet and chars_q_raw.parquet.
 2. For overlapping accounting variables (both annual & quarterly), pick the
    value with the more recent datadate; fall back to whichever is non-null.
-3. Shift return one period forward (t chars predict t+1 return).
+3. Match raw CRSP returns for the exact next calendar month (t chars predict t+1 return).
 4. Compute ffi49 industry codes for ALL outputs (before branching).
 5. Produce four output files:
    - chars_raw_no_impute.parquet
@@ -16,8 +16,10 @@ Logic:
 
 import polars as pl
 from tqdm import tqdm
+from pathlib import Path
 
-from functions import ffi49, fillna_ind, fillna_all, standardize, INPUT_PATH, OUTPUT_PATH
+from functions import company_months, ffi49, fillna_ind, fillna_all, standardize, INPUT_PATH, OUTPUT_PATH
+
 
 # =====================================================================
 #  Variable lists
@@ -39,7 +41,7 @@ ACCOUNTING_VARS = [
 
 A_ONLY_VARS = [
     'adm', 'herf', 'hire',
-    'absacc', 'age', 'chempia', 'chinv', 'convind', 'currat', 'divi', 'divo',
+    'absacc', 'chempia', 'chinv', 'convind', 'currat', 'divi', 'divo',
     'grcapx', 'pchcapx_ia', 'pchcurrat', 'pchdepr', 'pchgm_pchsale', 'pchquick',
     'pchsale_pchinvt', 'pchsale_pchrect', 'pchsale_pchxsga', 'pchsaleinv',
     'quick', 'realestate', 'roic', 'salecash', 'salerec', 'saleinv',
@@ -51,12 +53,13 @@ Q_ONLY_VARS = [
     'roavol',
 ]
 
+# 20261030fix-Age is monthly coverage from accounting.py, not an annual financial variable.
 M_VARS = [
     'baspread', 'beta', 'ill', 'maxret',
     'mom12m', 'mom1m', 'mom36m', 'mom60m', 'mom6m',
     're', 'rvar_capm', 'rvar_ff3', 'rvar_mean',
     'seas1a', 'std_dolvol', 'std_turn', 'zerotrade',
-    'me', 'dy', 'turn', 'dolvol', 'indmom',
+    'me', 'dy', 'turn', 'dolvol', 'indmom', 'age',
 ]
 
 
@@ -89,6 +92,26 @@ def _reconcile(df_a, df_q):
     For variables in ACCOUNTING_VARS: use the more recent datadate when both
     frequencies are available, otherwise use whichever is non-null.
     """
+    # 20261030fix-Carrying values by permno can retain the previous company's annual and quarterly data after a gvkey change.
+    # JKP: aux_functions.py prepare_crsp_sf / make_world_data_prelim identifies the company from the monthly CCM link.
+    # https://github.com/bkelly-lab/jkp-data/blob/83437be5124703a9f6df8e20eae51d9b9d4f78b1/src/jkp/data/aux_functions.py#L603-L615
+    company_month = company_months(df_a.select('permno', 'jdate'), INPUT_PATH)
+    aligned = []
+    for frame, fields, keep_roa in [
+        (df_a, ACCOUNTING_VARS + A_ONLY_VARS, False),
+        (df_q, ACCOUNTING_VARS + ['cinvest', 'nincr', 'pscore', 'roavol'], True),
+    ]:
+        frame = frame.join(company_month, on=['permno', 'jdate'], how='left', validate='m:1')
+        # 20261030fix-Keep accounting values and descriptions only for the current company; preserve returns and market indicators.
+        # Quarterly ROA is already matched to the current company in accounting.py.
+        frame = frame.with_columns([
+            pl.when(pl.col('gvkey') == pl.col('_current_gvkey')).then(pl.col(v)).alias(v)
+            for v in _available_cols(frame, fields + ['sic', 'ticker', 'conm'])
+            if not (keep_roa and v == 'roa')
+        ]).with_columns(pl.col('_current_gvkey').alias('gvkey')).drop('_current_gvkey')
+        aligned.append(frame)
+    df_a, df_q = aligned
+
     a_prefix = {v: f'a_{v}' for v in ACCOUNTING_VARS}
     q_prefix = {v: f'q_{v}' for v in ACCOUNTING_VARS}
 
@@ -99,16 +122,24 @@ def _reconcile(df_a, df_q):
     )
 
     # --- quarterly side: obs + accounting + q_only + quarterly-only monthly vars ---
-    q_cols = _available_cols(df_q, OBS_VARS + ACCOUNTING_VARS + Q_ONLY_VARS)
-    q_drop = [c for c in OBS_VARS if c not in ('gvkey', 'permno', 'jdate')]
+    q_cols = _available_cols(df_q, OBS_VARS + ACCOUNTING_VARS + Q_ONLY_VARS
+                             + ['_roa_datadate'])
+    # 20261030fix-Retain quarterly industry when annual data become invalid.
+    q_drop = [c for c in OBS_VARS if c not in ('gvkey', 'permno', 'jdate', 'sic')]
     df_q_sel = (
         df_q.select(q_cols)
-        .rename({v: q_prefix[v] for v in ACCOUNTING_VARS if v in q_cols})
+        .rename({**{v: q_prefix[v] for v in ACCOUNTING_VARS if v in q_cols}, 'sic': '_q_sic'})
         .drop([c for c in q_drop if c in q_cols])
+        # 20261030fix-After checking each company, merge annual and quarterly data by stock and month.
+        .drop('gvkey')
     )
 
-    # merge
-    df = df_a_sel.join(df_q_sel, on=['gvkey', 'permno', 'jdate'], how='left')
+    # 20261030fix-Merge by stock-month after checking each company; gvkey is no longer a join key.
+    df = df_a_sel.join(
+        df_q_sel, on=['permno', 'jdate'], how='left', validate='1:1'
+    )
+    # 20261030fix-Use the current quarterly industry when the annual company has changed.
+    df = df.with_columns(pl.coalesce('sic', '_q_sic').alias('sic')).drop('_q_sic')
 
     # reconcile each overlapping variable (skip datadate)
     for var in tqdm(ACCOUNTING_VARS[1:], desc='Reconciling A/Q'):
@@ -127,7 +158,8 @@ def _reconcile(df_a, df_q):
             a_avail = pl.col(a_col).is_not_null()
             q_avail = pl.col(q_col).is_not_null()
             latest = (
-                pl.when(pl.col('q_datadate') < pl.col('a_datadate'))
+                pl.when(pl.col('_roa_datadate' if var == 'roa' and '_roa_datadate' in df.columns
+                               else 'q_datadate') < pl.col('a_datadate'))
                 .then(pl.col(a_col))
                 .otherwise(pl.col(q_col))
             )
@@ -137,21 +169,35 @@ def _reconcile(df_a, df_q):
             ).drop([a_col, q_col])
 
     # drop frequency-specific datadates
-    df = df.drop([c for c in ['a_datadate', 'q_datadate'] if c in df.columns])
-    return df
+    df = df.drop([c for c in ['a_datadate', 'q_datadate', '_roa_datadate'] if c in df.columns])
+    return df.select(pl.exclude('age'), 'age')
 
 
 def _shift_return(df):
-    """Shift return forward one month: t characteristics predict t+1 return."""
-    df = df.sort(['permno', 'jdate'])
-    df = df.with_columns([
-        pl.col('ret').shift(-1).over('permno').alias('ret_lead'),
-        pl.col('jdate').shift(-1).over('permno').alias('date'),
-    ])
-    df = df.drop('ret').rename({'ret_lead': 'ret'})
+    """Label each formation month with its exact next-month raw CRSP return.
 
-    df = df.filter(pl.col('ret').is_not_null()).drop('jdate')
-    return _replace_inf(df)
+    Universe filters select characteristics at formation, not future returns.
+    Missing raw observations remain null; never use a later retained row or
+    substitute zero for a missing outcome.
+    """
+    returns = pl.read_parquet(
+        Path(INPUT_PATH) / 'crsp_msf.parquet',
+        columns=['permno', 'mthcaldt', 'mthret'],
+    ).select(
+        pl.col('permno').cast(pl.Int64),
+        pl.col('mthcaldt').dt.month_end().alias('date'),
+        pl.col('mthret').cast(pl.Float64).alias('ret'),
+    )
+    other_cols = [c for c in df.columns if c not in ('jdate', 'ret', 'date')]
+    result = (
+        df.sort(['permno', 'jdate'])
+        .drop('ret')
+        .with_columns(pl.col('jdate').dt.offset_by('1mo').dt.month_end().alias('date'))
+        .join(returns, on=['permno', 'date'], how='left', validate='m:1', maintain_order='left')
+        .drop('jdate')
+        .select(*other_cols, 'ret', 'date')
+    )
+    return _replace_inf(result)
 
 
 def _rank_df(df):
@@ -213,19 +259,20 @@ if __name__ == '__main__':
     df = _reconcile(chars_a, chars_q)
 
     # ------------------------------------------------------------------
-    # Shift return forward
+    # Match exact next-calendar-month returns
     # ------------------------------------------------------------------
-    print("Shifting return...", flush=True)
+    print("Matching next-month returns from raw CRSP...", flush=True)
     if 'retx' in df.columns:
         df = df.drop('retx')
     df = _shift_return(df)
     df = df.sort(['permno', 'date'])
-    print(f"  After shift: {df.shape}", flush=True)
+    print(f"  After return match: {df.shape}", flush=True)
 
     # ------------------------------------------------------------------
     # Fill SIC + compute ffi49 (shared by ALL outputs — Bug 5 fix)
     # ------------------------------------------------------------------
-    df = df.with_columns(pl.col('sic').forward_fill().over('permno'))
+    # 20261030fix-Fill industry only within the same stock and company.
+    df = df.with_columns(pl.col('sic').forward_fill().over(['permno', 'gvkey']))
     df = df.with_columns(pl.col('sic').fill_null(0).cast(pl.Int64))
     df = df.with_columns(ffi49().alias('ffi49'))
 

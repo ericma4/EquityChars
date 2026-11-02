@@ -195,6 +195,8 @@ cython_debug/
 .DS_Store
 .PyCharm
 wrds/
+chars_ciz_monthly/
+check_data/
 
 *.parquet
 *.md
@@ -202,3 +204,14 @@ wrds/
 *.xlsx
 *.png
 *.pdf
+
+# Dated rebuild outputs and audit artifacts
+/data/processed_20261030/
+
+# Keep local document assets out of future commits.
+/documents/*/
+
+# Include the correction report and its build assets.
+!/documents/fix_docs/
+!/documents/fix_docs/**/
+!/documents/fix_docs/**
