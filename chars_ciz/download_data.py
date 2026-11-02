@@ -222,7 +222,8 @@ def get_tables_config(start_date='2020-01-01'):
                     /* filtering IBES */
                     statpers < ANNDATS_ACT      /*only keep summarized forecasts prior to earnings annoucement*/
                 AND measure=''EPS''
-                AND (fpedats-statpers)>=0
+                /* 20261030fix-HXZ A.1.3: FY1 stays the current fiscal year after its end until the
+                   actual is announced; (fpedats-statpers)>=0 dropped those months. */
                 AND CURCODE=''USD''
                 AND fpi in (''1'',''2'')
             """

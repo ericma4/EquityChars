@@ -63,7 +63,7 @@
 {\fontsize{18}{24}\selectfont\bfseries 20261030 指标修复说明}\par
 \vspace{6pt}
 
-这份说明只记录真正需要改的地方。每一项都能在 HXZ（Hou, Xue \& Zhang 2020）、GHZ（Green, Hand \& Zhang 2017）或 JKP（Jensen, Kelly \& Pedersen 2023）中找到依据；超出文献要求、只是``以防万一''的逻辑都已撤回，理由集中放在第十节。
+这份说明只记录真正需要改的地方。每一项都能在 HXZ（Hou, Xue \& Zhang 2020）、GHZ（Green, Hand \& Zhang 2017）或 JKP（Jensen, Kelly \& Pedersen 2023）中找到依据；超出文献要求、只是``以防万一''的逻辑都已撤回，理由集中放在第十一节。
 
 所有数字来自两段小样本，原始数据与 main 完全相同：\textbf{2015--2021 年}（另取 2012--2014 年作历史）和\textbf{1968--1975 年}（跨过 1972 年 RDQ 开始普及的节点）。``修复前''指 main，``修复后''指本分支。
 
@@ -83,13 +83,14 @@
 指标 & 问题 & 依据 & 影响（2015--2021） \\
 \midrule
 SUE & 公告前就被使用；窗口 12 个月；1972 年前没有滞后 & HXZ A.1.1 & 46\% 的行提前使用 \\
-ABR & 窗口 12 个月；未剔除公告日早于季末的记录 & HXZ A.1.2 & 4\% 的行过期 \\
-RE & 混入 FY2；滞后顺序被打乱；窗口晚一个月 & HXZ A.1.3 & 与正确值秩相关仅 0.31 \\
+ABR & 窗口 12 个月；同一公告的日收益重复计入；缺失收益使窗口错位 & HXZ A.1.2 & 4\% 的行过期 \\
+RE & 混入 FY2；滞后顺序被打乱；窗口晚一个月；下载时丢掉年末后的 FY1 & HXZ A.1.3 & 与正确值秩相关仅 0.31 \\
 财务滞后 & 按行 shift，可跨公司、跨缺失期 & JKP & 约 1\% 的行 \\
 NI & 缺历史股数时补 0，得到 $\log(\text{股数})$ & HXZ A.3.10 & 7\% 的行 \\
 季度 ROA & 拿下季盈利配本季资产 & HXZ A.4.3 & ROA/EP/ROE 约半数行 \\
 CINVEST & 不足四个前季也照算 & GHZ & 4\% 的行 \\
 age & 计数早于去重排序，年龄会倒退 & GHZ & 13,695 次倒退 \\
+年季合并 & 按 gvkey 合并，年度 gvkey 为空或不同时丢掉整个季度侧 & JKP & 2.9\% 的行 \\
 其他 & 下月收益、TTM12、月度股息 & JKP & 极少 \\
 \bottomrule
 \end{tabularx}\endgroup
@@ -172,11 +173,16 @@ jdate & datadate（前） & sue（前） & datadate（后） & sue（后） \\
 \Needspace{30mm}
 \section*{二、ABR（\texttt{abr.py}）}
 
-四天窗口 $[-2,+1]$ 的算法本身没有问题，修复前后数值完全一致。要改的只有两点，都直接来自 HXZ：季末距形成月不超过六个月（main 是十二个月），以及公告日必须晚于季末。
+HXZ 的 ABR 是公告日前两个到后一个交易日、共四天的超额收益之和；季末距形成月不超过六个月，公告日晚于季末。main 有四处偏离：
+\begin{itemize}
+\item 窗口是十二个月，并且没有剔除公告日早于季末的记录。
+\item 同一天公告了几个季度（常见于补报）时，每个季度各连一次日收益，同一天的收益被重复计入，$[-2,+1]$ 实际只覆盖两天。样本中 161 / 137,907 个公告（0.12\%）受影响。现在每个公告只保留一行（最新季度）。
+\item 先删掉缺失的日收益再数交易日，缺一天窗口就往外移一天。现在先数交易日、再求和（缺失项跳过）。
+\end{itemize}
 
 \begin{ratebox}
 \ratecompare{修复前}{\focusvalue{17,145} 行季末超过六个月（4.0\%）}{修复后}{\focusvalue{0}}
-\rateline{其余}{同一 permno、同一月份上的 ABR 数值 100\% 相同}
+\rateline{其余}{后两处修改改变了 347 个值（0.08\%）；与原分支的结果逐行一致}
 \rateline{参考}{HXZ A.1.2}
 \end{ratebox}
 
@@ -186,7 +192,7 @@ jdate & datadate（前） & sue（前） & datadate（后） & sue（后） \\
 \begin{Verbatim}[fontsize=\codefont,breaklines=true]
 ccm_merged
     .sort("rdq")
-...
+df.filter(abrd is not null)  # 再数交易日
 AND a.plus12m >= b.date
 \end{Verbatim}
 \end{codebox}
@@ -197,8 +203,8 @@ AND a.plus12m >= b.date
 \begin{Verbatim}[fontsize=\codefont,breaklines=true,commandchars=\\\{\}]
 ccm_merged
     .filter(\codehl{rdq is not null & rdq > datadate})
-    .sort("rdq")
-...
+ccm1.\codehl{unique(["permno", "rdq_trad"])}
+# 先数交易日，再求和
 AND \codehl{a.plus6m} >= b.date
 \end{Verbatim}
 \end{codebox}
@@ -273,6 +279,8 @@ statpers & meanest & 月度修正 & RE（修复后） & RE（修复前） \\
 
 \blocktitle{HXZ A.1.3}
 \includegraphics[width=0.85\linewidth]{figures/ref-re.png}\par
+
+\textbf{下载条件。}main 的 IBES 查询带有 \texttt{(fpedats-statpers)>=0}，把``财年已结束、实际值尚未公告''这段时间的 FY1 预测全部丢掉了。对 12 月财年的公司，每年 1--2 月因此没有 FY1，样本中约 12\% 的月份缺 FY1 记录。这一条件已从 \texttt{download\_data.py} 删除（保留 \texttt{statpers < anndats\_act}），\textbf{需要重新下载 \texttt{ibes} 表后才生效}。
 
 关于价格：HXZ 用 IBES 未调整数据再自行做拆股调整。这里继续用 IBES 调整后预测配 CRSP \texttt{prc/cfacpr}；两者都调整到同一（最新）股本口径，比例不变，不需要额外下载 WRDS 表。
 
@@ -386,7 +394,18 @@ GHZ 的 age 是公司在 Compustat 中的年数。main 用 \texttt{cum\_count().
 
 %======================================================================
 \Needspace{30mm}
-\section*{九、其他小修}
+\section*{九、年季合并（\texttt{impute\_rank\_output.py}）}
+
+main 按 \texttt{gvkey, permno, jdate} 把季度指标并到年度面板上。年度 gvkey 为空（例如新上市公司还没有第一份年报）或与季度不同（公司切换）时，整个季度侧都连不上，SUE、ABR、CINVEST 和季度财务指标一起丢失。现在按 \texttt{permno, jdate} 合并；两边 gvkey 不同时，datadate 较新的一侧视为当前公司，另一侧的公司指标置空。
+
+\begin{ratebox}
+\ratecompare{修复前}{\focusvalue{2.91\%}（8,967 / 308,399）丢失季度侧}{修复后}{\focusvalue{0}}
+\rateline{其中}{年度 gvkey 为空 8,230 行；公司切换 737 行（均为年度一侧较旧，已置空）}
+\rateline{参考}{JKP（按当月公司合并）}
+\end{ratebox}
+
+\Needspace{30mm}
+\section*{十、其他小修}
 
 \begin{itemize}
 \item \textbf{下月收益}（\texttt{impute\_rank\_output.py}）：\texttt{shift(-1)} 取的是下一行，股票中断时会把几个月后的收益当成下月收益。现在只有下一行恰好是下一个日历月才保留。样本中 98 / 433,939 行受影响。
@@ -396,7 +415,7 @@ GHZ 的 age 是公司在 Compustat 中的年数。main 用 \texttt{cum\_count().
 
 %======================================================================
 \Needspace{30mm}
-\section*{十、撤回的修改}
+\section*{十一、撤回的修改}
 
 原分支还做了下面这些改动。它们要么超出 HXZ / GHZ / JKP 的要求，要么带来的差异很小却需要大量代码或新的数据下载，所以撤回。
 
@@ -408,16 +427,24 @@ GHZ 的 age 是公司在 Compustat 中的年数。main 用 \texttt{cum\_count().
 年度数据改为次年 6 月形成，并按财年屏蔽 & HXZ 的 6 月形成针对年度排序组合；本面板按月更新，沿用四个月滞后（JKP 做法）。该改动使所有年度指标约 28\% 的值改变。 \\
 age 改为 JKP 月度年龄 & 改变了指标定义；GHZ 的 age 修正计数即可。 \\
 ABR 改用 \texttt{vwretd}（新 WRDS 表） & \texttt{mktrf+rf} 即 CRSP 价值加权市场收益；不必新增下载。 \\
-ABR 要求四天收益齐全、按公告去重、按月核对 CCM & HXZ 未作要求；数值差异约 0.05\%，却额外置空约 1.6\% 的行。 \\
+ABR 要求四天收益齐全、按月核对 CCM & HXZ 未作要求；会额外置空约 1.6\% 的行。（按公告去重已保留，见第二节。） \\
+按月核对 CCM 链接（\texttt{company\_months}） & 仅 JKP 这样做，GHZ 与 CZ 都沿用财报。年季合并已按较新财报确定公司；剩余约 0.6\% 的股票月份所带 gvkey 当月链接已失效，列为可选改进。 \\
 RE 改用 IBES 未调整数据和 CRSP 日度拆股因子 & 调整后数据配 CRSP 调整价格口径一致；不必新增下载。 \\
 \texttt{pad\_periods}、\texttt{calendar\_lag}、\texttt{\_lag\_valid\_k}、公告日屏蔽 & 由一个 \texttt{lag()} 代替；四个月滞后本身已保证数据可得。 \\
 AGR / CHTX / NI / CHCSHO 在输出时用 DuckDB 从未过滤季度数据重算 & 数值与就地计算完全相同，只多约 2.7\% 覆盖，却要约 70 行代码。 \\
-年季合并按月核对 CCM 公司（\texttt{company\_months}） & main 已按 gvkey 合并年季数据；跨公司滞后已在 \texttt{lag()} 中处理。 \\
 SUE 丢弃没有 RDQ 的历史季度 & HXZ 只要求当期季度有 RDQ；历史季度（如上市前）照常参与标准差。 \\
 \bottomrule
 \end{tabularx}\endgroup
 
 \blocktitle{原分支自身的问题}
 原分支的 \texttt{chars\_std} 在月度展开后的数据上按期间查找滞后，而 \texttt{rsup} 含月度市值，同一季度内各月取值不同，被判为``冲突''后置空。结果 \texttt{sgrvol} 覆盖下降 93\%，\texttt{m8} 与原值几乎无关。本分支的 \texttt{sgrvol} 保持 main 的算法不变。
+
+\blocktitle{已知、尚未处理}
+\begin{itemize}
+\item \texttt{accounting.py} 把缺失的月收益填成 0，这个 0 会成为下月收益标签。样本中 134 / 308,399 行（0.04\%）。
+\item 年度数据向后延用没有上限；样本中 443 行使用的年报已超过 24 个月。CZ 的做法是延用 12 个月。
+\item \texttt{sgrvol} 在月度面板上取 16 行 \texttt{rsup}，并非 16 个季度（main 原有问题）。
+\item 约 0.6\% 的股票月份所带 gvkey 当月 CCM 链接已失效（见上表，JKP 级别的改进）。
+\end{itemize}
 
 \end{document}

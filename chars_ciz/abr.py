@@ -115,6 +115,10 @@ con = duckdb.connect(":memory:")
 try:
     con.execute(f"SET threads TO {num_threads};")
 
+    # 20261030fix-One announcement can carry several fiscal quarters (e.g. late filers); keep one event
+    # (latest quarter), otherwise each daily return is joined and counted once per quarter.
+    ccm1 = (ccm1.sort(["permno", "rdq_trad", "datadate"])
+            .unique(subset=["permno", "rdq_trad"], keep="last", maintain_order=True))
     con.register("ccm_data", ccm1.to_arrow())
     con.register("crsp_data", crsp_d.to_arrow())
 
@@ -129,8 +133,8 @@ try:
         ORDER BY a.permno, a.rdq_trad, b.date
     """).pl()
 
-    # Filter out missing returns
-    df = df.filter(pl.col("abrd").is_not_null())
+    # 20261030fix-Count trading days before dropping missing returns, so a missing return does not
+    # shift the [-2, +1] window onto other days (null returns are skipped by the sum).
 
     ###############################
     #    Count trading days       #
@@ -175,7 +179,7 @@ try:
     # Sum abnormal returns by group
     df_abr = (
         df.group_by(["permno", "rdq_trad"])
-        .agg(pl.col("abrd").sum().alias("abr"))
+        .agg(pl.when(pl.col("abrd").count() > 0).then(pl.col("abrd").sum()).alias("abr"))
     )
 
     # Join ABR back and keep only count == 1 rows (rdq + 1 day)

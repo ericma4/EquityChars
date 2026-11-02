@@ -105,10 +105,25 @@ def _reconcile(df_a, df_q):
         df_q.select(q_cols)
         .rename({v: q_prefix[v] for v in ACCOUNTING_VARS if v in q_cols})
         .drop([c for c in q_drop if c in q_cols])
+        .rename({'gvkey': 'q_gvkey'})
     )
 
     # merge
-    df = df_a_sel.join(df_q_sel, on=['gvkey', 'permno', 'jdate'], how='left')
+    # 20261030fix-Joining on gvkey dropped the whole quarterly side when the annual gvkey was null
+    # (no annual report yet) or different (company switch). Merge by stock-month; if the companies
+    # differ, the side with the newer report is the current company and the other side is blanked.
+    df = df_a_sel.join(df_q_sel, on=['permno', 'jdate'], how='left')
+    switch = pl.col('gvkey').is_not_null() & pl.col('q_gvkey').is_not_null() & (pl.col('gvkey') != pl.col('q_gvkey'))
+    stale_a = switch & (pl.col('a_datadate') < pl.col('q_datadate'))
+    stale_q = switch & (pl.col('q_datadate') < pl.col('a_datadate'))
+    a_fields = [c for c in df.columns if c.startswith('a_') or c in A_ONLY_VARS]
+    q_fields = [c for c in df.columns if c.startswith('q_') and c != 'q_gvkey'] + \
+               [c for c in ['cinvest', 'nincr', 'pscore', 'roavol'] if c in df.columns]
+    df = df.with_columns(
+        [pl.when(~stale_a).then(pl.col(c)).alias(c) for c in a_fields] +
+        [pl.when(~stale_q).then(pl.col(c)).alias(c) for c in q_fields] +
+        [pl.when(stale_a | pl.col('gvkey').is_null()).then(pl.col('q_gvkey')).otherwise(pl.col('gvkey')).alias('gvkey')]
+    ).drop('q_gvkey')
 
     # reconcile each overlapping variable (skip datadate)
     for var in tqdm(ACCOUNTING_VARS[1:], desc='Reconciling A/Q'):
