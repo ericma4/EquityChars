@@ -85,6 +85,7 @@ ABR & 过期季度仍使用 & 12 个月；不查 rdq & 6 个月；\texttt{rdq > 
 RE & 滞后顺序被打乱 & \texttt{unique()} 后乱序 \texttt{shift} & 按日历月匹配 & HXZ A.1.3 & 秩相关仅 0.31 \\
  & 混入下一财年预测 & FPI 1 与 2 & 只用 FPI = 1 & HXZ A.1.3 & 10.2\% 行 \\
  & 窗口晚一个月；求平均 & 滞后 1--6，均值 & 滞后 0--5，求和，$\ge 4$ 项 & HXZ A.1.3 & 全部 \\
+ & 拆股因子为 0 时脚本中断 & Decimal 除以 \texttt{cfacpr} & 转为浮点，0 视为缺失 & -- & 全量 250 行 \\
  & 年末后 FY1 被下载条件丢掉 & \texttt{fpedats >= statpers} & 删除该条件（\texttt{ibes} 已重新下载） & HXZ A.1.3 & RE 覆盖 +84\%；1--5 月由每月约 3 千增至约 2.5 万 \\
 \addlinespace
 财务滞后 & 跨公司、跨缺失期 & \texttt{shift(k).over('permno')} & \texttt{lag()}：同 gvkey、相隔 $k$ 期 & JKP & 约 1\% 行；早期覆盖反增 \\
@@ -161,7 +162,8 @@ age & permno 11581，2012--2019 & \bef{3, 8, 4, 1, 7, 6, 10, 5} & \aft{1, 2, \ld
 \midrule
 年度数据改为次年 6 月形成 & 6 月形成是 HXZ 年度组合的做法；本面板按月更新，沿用四个月滞后（JKP）。会改变约 28\% 的年度值。 \\
 age 改为 JKP 月度年龄 & 改变定义；按 GHZ 修正计数即可。 \\
-ABR 用 \texttt{vwretd}、RE 用 IBES 未调整数据 & 需要新的 WRDS 表；现有 \texttt{mktrf+rf}、IBES 调整后数据配 CRSP 调整价格口径一致。 \\
+ABR 用 \texttt{vwretd} & 用 2016--2021 年数据核对：两种市场收益相关 0.998；ABR 月度截面秩相关 $\ge$ 0.9994。不必新增 WRDS 表。 \\
+RE 用 IBES 未调整预测和 IBES 价格 & 用 2016--2021 年数据核对：与现做法月度截面秩相关 0.986，10.6\% 的股票月份变动一个十分位（1.4\% 超过一个）。差异主要来自价格日期（IBES 月中 vs CRSP 月末，0.990），调整后 EPS 的舍入次之（0.995）。完全按 HXZ 需新增一张表和约 25 行拆股换算。 \\
 ABR 要求四天收益齐全 & HXZ 未要求；会多置空约 1.6\% 的行。 \\
 按月核对 CCM 链接 & 只有 JKP 这样做，GHZ、CZ 都沿用财报。 \\
 \texttt{pad\_periods}、\texttt{calendar\_lag}、公告日屏蔽、DuckDB 重算 AGR 等 & 由一个 \texttt{lag()} 代替，数值相同。 \\

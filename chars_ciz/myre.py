@@ -73,7 +73,9 @@ ibes_crsp = ibes_crsp.sort(['ticker', 'permno', 'fpedats', 'statpers'])
 
 # Calculate adjusted price and monthly revision
 ibes_crsp = ibes_crsp.with_columns([
-    (pl.col('prc') / pl.col('cfacpr')).alias('prc_adj')
+    # 20261030fix-CRSP stores the cumulative factor as Decimal(17,12); after many reverse splits it
+    # underflows to 0 (250 rows), and Decimal division by zero aborts the script.
+    (pl.col('prc').cast(pl.Float64) / pl.col('cfacpr').cast(pl.Float64).replace(0, None)).alias('prc_adj')
 ])
 
 
