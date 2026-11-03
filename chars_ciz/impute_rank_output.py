@@ -116,11 +116,14 @@ def _reconcile(df_a, df_q):
     switch = pl.col('gvkey').is_not_null() & pl.col('q_gvkey').is_not_null() & (pl.col('gvkey') != pl.col('q_gvkey'))
     # 20261030fix-CZ: an annual report is used for 12 months after it becomes available
     # (datadate + 4 months), i.e. at most 15 months after the fiscal year end.
-    a_age = (pl.col('jdate').dt.year() - pl.col('a_datadate').dt.year()) * 12 + \
-            pl.col('jdate').dt.month() - pl.col('a_datadate').dt.month()
+    # JKP: quarterly data at most 12 months after the quarter end (normally replaced after 3; this
+    # only bites after a trading gap).
+    months_since = lambda d: (pl.col('jdate').dt.year() - pl.col(d).dt.year()) * 12 + \
+                             pl.col('jdate').dt.month() - pl.col(d).dt.month()
     switched_a = switch & (pl.col('a_datadate') < pl.col('q_datadate'))
-    stale_a = switched_a | (a_age > 15).fill_null(False)
-    stale_q = switch & (pl.col('q_datadate') < pl.col('a_datadate'))
+    stale_a = switched_a | (months_since('a_datadate') > 15).fill_null(False)
+    stale_q = (switch & (pl.col('q_datadate') < pl.col('a_datadate'))) | \
+              (months_since('q_datadate') > 12).fill_null(False)
     a_fields = [c for c in df.columns if c.startswith('a_') or c in A_ONLY_VARS]
     q_fields = [c for c in df.columns if c.startswith('q_') and c != 'q_gvkey'] + \
                [c for c in ['cinvest', 'nincr', 'pscore', 'roavol'] if c in df.columns]

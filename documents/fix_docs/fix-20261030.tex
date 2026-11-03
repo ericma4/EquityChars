@@ -219,9 +219,9 @@ age（后） & \chg{1} & \chg{2} & \chg{3} & \chg{4} & \chg{5} & 6 & \chg{7} & \
 %======================================================================
 \section{年度、季度合并与下月收益（\code{impute\_rank\_output.py}）}
 \four{把年度与季度指标合到每个股票月份，再配上下个月的收益作为预测目标。}
-{JKP：按股票月份合并；公司变更时用最新财报。CZ：年报在可用后（季末 + 4 个月）最多使用 12 个月，即季末后 15 个月。下月收益必须是下一个日历月。}
-{按 \code{gvkey} 连接：还没有年报（年度 gvkey 为空）或换了公司时，整行季度指标丢失（2.9\% 的行）；年报不设期限，停牌多年后复牌仍用旧年报；下月收益取“下一行”，停牌后取到几年后的收益（98 行）。}
-{按（permno，jdate）连接，季度侧 gvkey 暂存为 \code{q\_gvkey}；两边公司不同时保留财报较新的一边；年报超过季末 15 个月置空；下月收益只取下一个日历月。}
+{JKP：按股票月份合并；公司变更时用最新财报。CZ：年报在可用后（季末 + 4 个月）最多使用 12 个月，即季末后 15 个月。JKP：财务数据最多用到季末后 12 个月，季报同样适用。下月收益必须是下一个日历月。}
+{按 \code{gvkey} 连接：还没有年报（年度 gvkey 为空）或换了公司时，整行季度指标丢失（2.9\% 的行）；年报、季报都不设期限，停牌多年后复牌仍用旧财报；下月收益取“下一行”，停牌后取到几年后的收益（98 行）。}
+{按（permno，jdate）连接，季度侧 gvkey 暂存为 \code{q\_gvkey}；两边公司不同时保留财报较新的一边；年报超过季末 15 个月、季报超过季末 12 个月置空（季报只影响 0.07\% 的行，都在停牌或缺报之后）；下月收益只取下一个日历月。}
 
 \extitle{permno 11990（gvkey 179741），2019 年 5 月才有第一份年报。}
 {\tsize
@@ -246,6 +246,18 @@ age（后） & \chg{1} & \chg{2} & \chg{3} & \chg{4} & \chg{5} & 6 & \chg{7} & \
 \bottomrule
 \end{tabular}}
 
+\extitle{季报上限，permno 11379：2020 年 11 月后停牌，2021 年 9 月复牌，最近的季报是 2020-07-31。}
+{\tsize
+\begin{tabular}{l l R r r r r}
+\toprule
+月份 & 季报 datadate & 距季末月数 & agr（前） & agr（后） & cinvest（前） & cinvest（后） \\
+\midrule
+2021-09 & 2020-07-31 & 14 & $-0.187$ & \chg{空} & 0.064 & \chg{空} \\
+2021-10 & 2020-07-31 & 15 & $-0.187$ & \chg{空} & 0.064 & \chg{空} \\
+2021-11 & 2021-07-31 & 4 & $-0.238$ & $-0.238$ & 空 & 空 \\
+\bottomrule
+\end{tabular}}
+
 %======================================================================
 \section{其他小修}
 {\tsize
@@ -266,6 +278,7 @@ ROAVOL & 16 期 ROA 往前数行 & 用 \code{lag(..., months=3)}（JKP） \\
 \item 增量更新：本地已有的表只下载最近一段（Compustat、IBES 从最新日期往前 24 个月，CRSP 3 个月），替换本地同期的行；\code{ccm} 很小，每次全量。新表或 \code{--full} 才全量下载。
 \item 某张表失败时脚本停止，不再重新连接；已完成的表已保存，下次只补剩下的。
 \item IBES 下载条件去掉 \code{fpedats >= statpers}（见第 3 节），IBES 也按 \code{statpers} 增量更新。
+\item \code{iclink\_ciz.csv}（IBES--CRSP 链接）仍由 SAS 脚本 \code{iclink\_ciz.sas} 生成，不经过本脚本。
 \end{itemize}
 用法：\code{python download\_data.py}（全部更新）；\code{--tables ibes crsp\_msf}（只更新这几张）；\code{--full ibes}（这张表重新全量下载）。
 
@@ -284,9 +297,7 @@ ABR 要求四天收益齐全、按月核对 CCM 链接 & HXZ 未要求；只有 
 \multicolumn{2}{@{}l}{\textbf{仍未处理}} \\
 \midrule
 \code{sgrvol} 取 16 个月度行 & main 原有，需先确定定义（季度销售增长）。 \\
-季度数据停牌后复牌仍沿用 & 季末后超过 15 个月的季度行约 0.06\%（如 permno 10051 在 2018-09 仍用 2015Q3）。 \\
 gvkey 当月 CCM 链接已失效 & 约 0.6\% 股票月份，JKP 级别。 \\
-\code{iclink\_ciz.csv} & 由 SAS 脚本 \code{iclink\_ciz.sas} 生成，不在 \code{download\_data.py} 中。 \\
 \bottomrule
 \end{tabularx}}
 
