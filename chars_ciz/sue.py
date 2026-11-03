@@ -54,13 +54,11 @@ ccm2 = ccm2.with_columns(pl.when(pl.col("rdq") > pl.col("datadate")).then(pl.col
 
 # 20261030fix-Lag k = the same company's quarter 3k months earlier (row shifts skipped missing
 # quarters); history comes from Compustat by gvkey, including quarters before the CRSP link.
-pid = (pl.col("datadate").dt.year() * 12 + pl.col("datadate").dt.month()).alias("pid")
-ccm2 = ccm2.with_columns(pid)
-hist = (comp.select("gvkey", pid, (pl.col("epspxq") / pl.col("ajexq").replace(0, None)).alias("eps"))
-        .drop_nulls("eps").unique(["gvkey", "pid"]))
+hist = (comp.select("gvkey", "datadate", (pl.col("epspxq") / pl.col("ajexq").replace(0, None)).alias("eps"))
+        .drop_nulls("eps").unique(["gvkey", "datadate"]))
 for k in range(1, 13):
-    ccm2 = ccm2.join(hist.with_columns(pl.col("pid") + 3 * k).rename({"eps": f"e{k}"}),
-                     on=["gvkey", "pid"], how="left")
+    ccm2 = ccm2.join(hist.with_columns(pl.col("datadate").dt.offset_by(f"{3 * k}mo").dt.month_end())
+                     .rename({"eps": f"e{k}"}), on=["gvkey", "datadate"], how="left")
 
 # Compute YoY differences: e{i}_diff = e{i} - e{i+4}
 # Matches SIZ: std is computed on 4-quarter EPS differences, not raw levels

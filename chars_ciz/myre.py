@@ -100,15 +100,14 @@ ibes_crsp = (ibes_crsp.sort(['permno', 'statpers', 'ticker'])
 # month is the latest revision before the t+1 return), matched by calendar month; at least four.
 # Main used rows l1..l6 (one month stale) and averaged them.
 prev = lambda c, j: c.shift(j).over('permno', order_by='statpers')
-revisions = [pl.col('monthly_revision')] + [
+ibes_crsp = ibes_crsp.with_columns([
     # month t-k is at most k rows back (fewer when IBES skips a month)
     pl.coalesce([pl.when(month_id - prev(month_id, j) == k).then(prev(pl.col('monthly_revision'), j))
-                 for j in range(1, k + 1)])
+                 for j in range(1, k + 1)]).alias(f'monthly_revision_l{k}')
     for k in range(1, 6)
-]
-ibes_crsp = ibes_crsp.with_columns(pl.concat_list(revisions).list.drop_nulls().alias('past_revisions'))
-ibes_crsp = ibes_crsp.with_columns(
-    pl.when(pl.col('past_revisions').list.len() >= 4).then(pl.col('past_revisions').list.sum()).alias('re'))
+])
+revisions = pl.concat_list(['monthly_revision'] + [f'monthly_revision_l{k}' for k in range(1, 6)]).list.drop_nulls()
+ibes_crsp = ibes_crsp.with_columns(pl.when(revisions.list.len() >= 4).then(revisions.list.sum()).alias('re'))
 
 # Filter and finalize
 ibes_crsp = ibes_crsp.filter(pl.col('re').is_not_null())

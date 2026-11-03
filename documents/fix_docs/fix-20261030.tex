@@ -1,197 +1,297 @@
 % !TeX program = xelatex
 % Compile from documents/fix_docs/: xelatex -interaction=nonstopmode -halt-on-error fix-20261030.tex
-% Before = main; After = fix-20261030.
-% Numbers come from two small samples rebuilt with the same raw files:
-%   2015-2021 (with 2012-2014 as history) and 1968-1975 (around the 1972 RDQ switch).
+% 修复前 = main，修复后 = fix-20261030。表中数据取自 2015--2021 年样本（2012--2014 年作历史）
+% 和 1968--1975 年样本，两边使用同一份原始数据。
 \documentclass[UTF8,a4paper,10pt,fontset=fandol]{ctexart}
-\usepackage[left=16mm,right=16mm,top=13mm,bottom=13mm,headheight=14pt]{geometry}
-\usepackage{graphicx}
-\usepackage{booktabs,tabularx,array,enumitem,fvextra,xcolor,fancyhdr,needspace}
-\usepackage[most]{tcolorbox}
+\usepackage[left=16mm,right=16mm,top=14mm,bottom=14mm]{geometry}
+\usepackage{graphicx,booktabs,tabularx,array,enumitem,needspace}
+\usepackage[table]{xcolor}
 \usepackage[unicode,colorlinks=true,linkcolor=black,urlcolor=black]{hyperref}
 \setmainfont{texgyretermes-regular.otf}[BoldFont=texgyretermes-bold.otf,ItalicFont=texgyretermes-italic.otf]
 \setCJKmainfont{FandolSong-Regular.otf}[BoldFont=FandolSong-Bold.otf]
 \setCJKsansfont{FandolSong-Regular.otf}[BoldFont=FandolSong-Bold.otf]
-\setmonofont{lmmono10-regular.otf}[Scale=1]
-\newcommand{\bodyfont}{\fontsize{9.8}{15}\selectfont}
-\newcommand{\tablefont}{\fontsize{9.2}{14}\selectfont}
-\newcommand{\codefont}{\fontsize{8.5}{13.2}\selectfont}
-\newcommand{\rateline}[2]{\par\noindent\hangindent=5em\hangafter=1\makebox[5em][l]{\textbf{#1}}#2\par}
-\newcommand{\ratecompare}[4]{\par\noindent
-\begin{tabularx}{\linewidth}{@{}XX@{}}
-\textbf{#1}\quad#2 & \textbf{#3}\quad#4
-\end{tabularx}\par}
-\definecolor{RateBorder}{HTML}{28583E}
-\definecolor{RateBackground}{HTML}{F0F7F1}
-\newtcolorbox{ratebox}{enhanced,
- colframe=RateBorder,colback=RateBackground,
- boxrule=0.6pt,arc=1mm,left=3mm,right=3mm,top=1mm,bottom=1mm,
- boxsep=0pt,fontupper=\bodyfont,
- before upper={\raggedright\setlength{\parskip}{1pt}},
- before skip=2pt,after skip=3pt}
-\newcommand{\blocktitle}[1]{\par\addvspace{4pt}\textbf{#1}\par\nobreak\vspace{3pt}}
-\newcommand{\focusvalue}[1]{\textcolor{red!75!black}{#1}}
-\newcommand{\codehl}[1]{\textcolor{red!75!black}{#1}}
-\newcommand{\rdqmark}[1]{{\setlength{\fboxsep}{1pt}\colorbox{yellow!35}{#1}}}
-\definecolor{CodeBorder}{HTML}{D1D6D4}
-\definecolor{CodeBackground}{HTML}{F6F7F7}
-\newtcolorbox{codebox}{enhanced,
- colframe=CodeBorder,colback=CodeBackground,
- boxrule=0.4pt,arc=1mm,left=2mm,right=2mm,top=0.7mm,bottom=0.7mm,
- boxsep=0pt,before skip=0pt,after skip=0pt}
-\setlength{\medskipamount}{3pt plus 1pt minus 1pt}
-\setlength{\smallskipamount}{1.5pt plus 0.5pt minus 0.5pt}
-\setlength{\aboverulesep}{0.2ex}
-\setlength{\belowrulesep}{0.2ex}
-\raggedbottom
-\clubpenalty=10000
-\widowpenalty=10000
+\setmonofont{lmmono10-regular.otf}
+
+% 红字 = 修复后改变了的数值；黄底 = 为了按基准计算而引入的辅助列
+\newcommand{\chg}[1]{\textcolor{red!80!black}{#1}}
+\definecolor{auxbg}{HTML}{FFF2A8}
+\newcolumntype{Y}{>{\columncolor{auxbg}}l}
+\newcolumntype{R}{>{\columncolor{auxbg}}r}
+\newcommand{\aux}[1]{{\setlength{\fboxsep}{1pt}\colorbox{auxbg}{#1}}}
+\newcommand{\NA}{--}
+\newcommand{\code}[1]{\texttt{#1}}
+
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{3pt}
-\setlist[itemize]{leftmargin=1.5em,itemsep=1pt,topsep=2pt,parsep=0pt}
-\ctexset{
- section={format=\normalfont\fontsize{12.5}{16}\selectfont\bfseries,beforeskip=16pt,afterskip=6pt},
- subsection={format=\normalfont\fontsize{10.8}{14}\selectfont\bfseries,beforeskip=10pt,afterskip=4pt}}
-\pagestyle{fancy}
-\fancyhf{}
-\fancyfoot[C]{\tablefont\thepage}
-\renewcommand{\headrulewidth}{0pt}
-\hypersetup{pdftitle={20261030 指标修复说明},pdfauthor={}}
-\newcolumntype{L}{>{\raggedright\arraybackslash}X}
-\newcommand{\bef}[1]{\textcolor{red!70!black}{#1}}
-\newcommand{\aft}[1]{\textcolor{green!40!black}{#1}}
+\setlist[itemize]{leftmargin=1.2em,itemsep=1pt,topsep=2pt,parsep=0pt}
+\setlength{\aboverulesep}{0.3ex}\setlength{\belowrulesep}{0.3ex}
+\ctexset{section={format=\large\bfseries,beforeskip=14pt,afterskip=5pt,number={\arabic{section}}}}
+\newcommand{\tsize}{\fontsize{9}{12.5}\selectfont}
+% 每个指标四行说明
+\newcommand{\four}[4]{%
+\begin{itemize}
+\item \textbf{指标}：#1
+\item \textbf{基准做法}：#2
+\item \textbf{原代码问题}：#3
+\item \textbf{修复后}：#4
+\end{itemize}}
+\newcommand{\extitle}[1]{\par\needspace{5\baselineskip}\textbf{例}：#1\par\nopagebreak}
+
 \begin{document}
-\bodyfont
-\setlength{\abovedisplayskip}{3pt}\setlength{\belowdisplayskip}{3pt}
-{\fontsize{18}{24}\selectfont\bfseries 20261030 指标修复说明}\par
-\vspace{4pt}
-修复前 = main，修复后 = 本分支。依据只取 HXZ（2020）、GHZ（2017）、JKP（2023）、CZ。影响数字来自 2015--2021 年样本（另注 1968--1975 年），原始数据相同。
+{\LARGE\bfseries 20261030 指标修复说明}\par\vspace{4pt}
+修复前 = main，修复后 = \code{fix-20261030} 分支。基准只取 HXZ（2020）、GHZ（2017）、JKP（2023）和 Chen--Zimmermann（CZ）。
+表中\chg{红字}是修复后变化的数值，\aux{黄底}列是为了按基准计算引入的辅助变量（尽量沿用 main 已有的变量名，如 \code{rdq}、\code{monthly\_revision\_l1}）。
+“空”表示缺失值。规模数字来自 2015--2021 年样本，1972 年前的例子来自 1968--1975 年样本。
 
 %======================================================================
-\section*{一、修复总表}
-\begingroup\tablefont\setlength{\tabcolsep}{3pt}\renewcommand{\arraystretch}{1.15}
-\begin{tabularx}{\linewidth}{@{}l L L L l l@{}}
+\section{SUE：标准化未预期盈利（\code{sue.py}）}
+\four{最近一个季度的每股收益相对去年同季的变化，除以过去 8 个季度这一变化的标准差。}
+{HXZ A.1.1：从 1972 年起，季度盈利在公告日 \code{rdq} 之后才能使用；1972 年以前没有 \code{rdq}，用季末后 4 个月。只用季末在 6 个月以内的季度。过去 8 个季度至少 6 个有值。}
+{用季末 \code{datadate <= date} 判断能否使用，季度还没公告就进入当月（约 46\% 的行用到了未公告的季度）；过期窗口 12 个月；历史 EPS 用“往前数 $k$ 行”，缺季度时错位。}
+{\code{rdq <= date}（1972 年前用 \code{datadate} + 4 个月），窗口 6 个月；历史 EPS 按同一 gvkey、往前 $3k$ 个月的季度取（沿用 main 的 \code{e1}--\code{e12}）。2015--2021 年未公告就使用的行由 169,561 降为 0。}
+
+\extitle{permno 10028（gvkey 012096），2019 年。3 月时 2018Q4 尚未公告（4 月 12 日才公告）。}
+{\tsize
+\begin{tabular}{l ll ll Y}
 \toprule
-指标 & 问题 & 修复前 & 修复后 & 依据 & 影响 \\
+ & \multicolumn{2}{c}{修复前} & \multicolumn{3}{c}{修复后} \\
+\cmidrule(lr){2-3}\cmidrule(l){4-6}
+月份 & datadate & sue & datadate & sue & rdq \\
 \midrule
-SUE & 盈利未公告就使用 & \texttt{datadate <= date} & \texttt{rdq <= date}；1972 年前季末 +4 月 & HXZ A.1.1 & 46.2\% 行提前 \\
- & 过期季度仍使用 & 季末后 12 个月 & 季末后 6 个月 & HXZ A.1.1 & 10,715 行 \\
- & 历史错位 & 往前数 $k$ 行 & 同一 gvkey、往前 $3k$ 个月 & HXZ A.1.1 & 约 4\% 值 \\
-\addlinespace
-ABR & 过期季度仍使用 & 12 个月；不查 rdq & 6 个月；\texttt{rdq > datadate} & HXZ A.1.2 & 4.0\% 行 \\
- & 同日公告多季，日收益重复计入 & 每季各连一次 & 每个公告一行 & HXZ A.1.2 & 161 个公告 \\
- & 缺失收益使窗口外移 & 先删缺失再数交易日 & 先数交易日再求和 & HXZ A.1.2 & 347 个值 \\
-\addlinespace
-RE & 滞后顺序被打乱 & \texttt{unique()} 后乱序 \texttt{shift} & 按日历月匹配 & HXZ A.1.3 & 秩相关仅 0.31 \\
- & 混入下一财年预测 & FPI 1 与 2 & 只用 FPI = 1 & HXZ A.1.3 & 10.2\% 行 \\
- & 窗口晚一个月；求平均 & 滞后 1--6，均值 & 滞后 0--5，求和，$\ge 4$ 项 & HXZ A.1.3 & 全部 \\
- & 拆股因子为 0 时脚本中断 & Decimal 除以 \texttt{cfacpr} & 转为浮点，0 视为缺失 & -- & 全量 250 行 \\
- & 年末后 FY1 被下载条件丢掉 & \texttt{fpedats >= statpers} & 删除该条件（\texttt{ibes} 已重新下载） & HXZ A.1.3 & RE 覆盖 +84\%；1--5 月由每月约 3 千增至约 2.5 万 \\
-\addlinespace
-财务滞后 & 跨公司、跨缺失期 & \texttt{shift(k).over('permno')} & \texttt{lag()}：同 gvkey、相隔 $k$ 期 & JKP & 约 1\% 行；早期覆盖反增 \\
-NI & 缺历史股数时补 0 & $\log(\text{股数})-0$ & 置空 & HXZ A.3.10 & 7.5\% 行 \\
-季度 ROA & 混用两个季度 & $\texttt{ibq}_{q+1}/\texttt{atq}_{q-1}$ & $\texttt{ibq}_q/\texttt{atq}_{q-1}$，按 rdq 使用 & HXZ A.4.3 & EP/ROE 也随之对齐 \\
-CINVEST & 前期不足也计算 & 有几期算几期 & 需要前四个季度 & GHZ & 4.3\% 行 \\
-age & 年龄倒退 & 去重前 \texttt{cum\_count} & 按 gvkey、日期排序计数 & GHZ & 13,695 次倒退 \\
-\addlinespace
-年季合并 & 丢掉整个季度侧 & 按 \texttt{gvkey} 连接 & 按 \texttt{permno, jdate}；公司不同取较新财报 & JKP & 2.9\% 行 \\
- & 年报无限期延用 & 不设上限 & 季末后最多 15 个月 & CZ & 0.3\% 行 \\
-下月收益 & 中断后取到更晚月份 & 下一行 & 必须是下一个日历月 & JKP & 98 行 \\
-TTM12 / 股息 & 跨缺失月求和 & 往前数 12 行 & 要求连续 12 个日历月 & JKP & 极少 \\
+2019-03 & 2018-12-31 & $-0.158$ & \chg{2018-09-30} & \chg{$-0.559$} & 2018-11-19 \\
+2019-04 & 2019-03-31 & $0.000$ & \chg{2018-12-31} & \chg{$-0.158$} & 2019-04-12 \\
+2019-05 & 2019-03-31 & $0.000$ & 2019-03-31 & $0.000$ & 2019-05-20 \\
 \bottomrule
-\end{tabularx}\endgroup
+\end{tabular}}
+
+\extitle{1972 年以前，permno 44396。修复前季度结束当月就使用。}
+{\tsize
+\begin{tabular}{l ll ll Y}
+\toprule
+ & \multicolumn{2}{c}{修复前} & \multicolumn{3}{c}{修复后} \\
+\cmidrule(lr){2-3}\cmidrule(l){4-6}
+月份 & datadate & sue & datadate & sue & plus4m \\
+\midrule
+1970-12 & 1970-12-31 & 5.752 & \chg{1970-06-30} & \chg{0.604} & 1970-10-31 \\
+1971-04 & 1971-03-31 & $-0.347$ & \chg{1970-12-31} & \chg{5.752} & 1971-04-30 \\
+\bottomrule
+\end{tabular}}
+
+\code{plus4m} = 季末 + 4 个月（1972 年前的可用日）；main 的 \code{plus12m} 改为 \code{plus6m}。
 
 %======================================================================
-\section*{二、例子}
-\begingroup\tablefont\setlength{\tabcolsep}{4pt}
+\section{ABR：盈余公告前后累计超额收益（\code{abr.py}）}
+\four{公告日前 2 天到后 1 天，个股日收益减市场日收益之和。}
+{HXZ A.1.2：只用公告日晚于季末的季度；季末在 6 个月以内才使用。}
+{不检查 \code{rdq}；窗口 12 个月，过期 ABR 一直沿用（4.0\% 的行）；同一天公告多个季度时日收益被重复相加（161 个公告）；先删缺失收益再数交易日，窗口会滑到别的日子（347 个值）。}
+{要求 \code{rdq > datadate}，窗口 6 个月（\code{plus6m}）；每个（permno，公告交易日）只留一个事件；先数交易日再求和。市场收益仍用 \code{mktrf + rf}（与 CRSP \code{vwretd} 相关 0.998，ABR 截面秩相关 $\ge$ 0.9994）。}
 
-\blocktitle{SUE，permno 10028：修复前用了尚未公告的季度}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}l lll lll@{}}
+\extitle{permno 10001，2017Q1（季末 2017-03-31，公告 2017-05-10），之后没有新季度。}
+{\tsize
+\begin{tabular}{l l Y r r}
 \toprule
- & \multicolumn{3}{c}{修复前} & \multicolumn{3}{c}{修复后} \\
-\cmidrule(lr){2-4}\cmidrule(l){5-7}
-jdate & datadate & rdq & sue & datadate & rdq & sue \\
+月份 & datadate & plus6m & abr（前） & abr（后） \\
 \midrule
-2019-03-31 & \bef{2018-12-31} & \bef{2019-04-12} & $-0.158$ & \aft{2018-09-30} & 2018-11-19 & $-0.559$ \\
-2019-04-30 & \bef{2019-03-31} & \bef{2019-05-20} & $0.000$ & \aft{2018-12-31} & 2019-04-12 & $-0.158$ \\
+2017-09 & 2017-03-31 & 2017-09-30 & 0.00338 & 0.00338 \\
+2017-10 & 2017-03-31 & 2017-09-30 & 0.00338 & \chg{空} \\
+\ldots & & & & \\
+2018-02 & 2017-03-31 & 2017-09-30 & 0.00338 & \chg{空} \\
 \bottomrule
-\end{tabular*}
-
-\blocktitle{SUE，1972 年前，permno 44396：修复前季度结束当月就使用}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lllll@{}}
-\toprule
-jdate & datadate（前） & sue（前） & datadate（后） & sue（后） \\
-\midrule
-1970-12-31 & \bef{1970-12-31} & 5.752 & \aft{1970-06-30} & 0.604 \\
-1971-04-30 & 1971-03-31 & $-0.347$ & \aft{1970-12-31} & 5.752 \\
-\bottomrule
-\end{tabular*}
-
-\blocktitle{RE，IBM 2017（FY2017）}
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lrrrr@{}}
-\toprule
-statpers & meanest & 月度修正 & RE（前） & RE（后） \\
-\midrule
-2017-03-16 & 13.79 & 0 & $-0.000182$ & 0.000054 \\
-2017-04-20 & 13.71 & $-0.000479$ & \bef{0.000054}（FY2018） & $-0.000360$ \\
-2017-06-15 & 13.70 & 0 & $-0.000249$ & $-0.000425$ \\
-\bottomrule
-\end{tabular*}
-
-修复后 6 月 = 1--6 月修正之和（1 月换财年、为空）：$0.000120+0-0.000479-0.000065+0$。
-
-\blocktitle{财务滞后、NI、age}
-\begin{tabularx}{\linewidth}{@{}l L L L@{}}
-\toprule
- & 情形 & 修复前 & 修复后 \\
-\midrule
-AGR & permno 10253，gvkey 012200 $\to$ 018290，2013Q3 & \bef{3.38}（新公司资产 / 旧公司资产） & \aft{空} \\
-AGR（早期） & gvkey 001010，1972Q4，季度资产只有年末值 & \bef{空} & \aft{0.0189} = 506.785 / 497.393 $-$ 1 \\
-NI & gvkey 034077，2019Q1，一年前 \texttt{cshoq} 缺失 & \bef{3.446} = $\log 31.369$ & \aft{空} \\
-age & permno 11581，2012--2019 & \bef{3, 8, 4, 1, 7, 6, 10, 5} & \aft{1, 2, \ldots, 8} \\
-\bottomrule
-\end{tabularx}
-\endgroup
+\end{tabular}}
 
 %======================================================================
-\section*{三、未采纳的改动}
-\begingroup\tablefont\setlength{\tabcolsep}{3pt}
-\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.34\linewidth} L@{}}
-\toprule
-原分支的改动 & 未采纳原因 \\
-\midrule
-年度数据改为次年 6 月形成 & 6 月形成是 HXZ 年度组合的做法；本面板按月更新，沿用四个月滞后（JKP）。会改变约 28\% 的年度值。 \\
-age 改为 JKP 月度年龄 & 改变定义；按 GHZ 修正计数即可。 \\
-ABR 用 \texttt{vwretd} & 用 2016--2021 年数据核对：两种市场收益相关 0.998；ABR 月度截面秩相关 $\ge$ 0.9994。不必新增 WRDS 表。 \\
-RE 用 IBES 未调整预测和 IBES 价格 & 用 2016--2021 年数据核对：与现做法月度截面秩相关 0.986，10.6\% 的股票月份变动一个十分位（1.4\% 超过一个）。差异主要来自价格日期（IBES 月中 vs CRSP 月末，0.990），调整后 EPS 的舍入次之（0.995）。完全按 HXZ 需新增一张表和约 25 行拆股换算。 \\
-ABR 要求四天收益齐全 & HXZ 未要求；会多置空约 1.6\% 的行。 \\
-按月核对 CCM 链接 & 只有 JKP 这样做，GHZ、CZ 都沿用财报。 \\
-\texttt{pad\_periods}、\texttt{calendar\_lag}、公告日屏蔽、DuckDB 重算 AGR 等 & 由一个 \texttt{lag()} 代替，数值相同。 \\
-SUE 丢弃没有 rdq 的历史季度 & HXZ 只要求当期季度有 rdq。 \\
-\bottomrule
-\end{tabularx}
-\endgroup
+\section{RE：分析师盈利预测修正（\code{myre.py}，\code{download\_data.py}）}
+\four{过去 6 个月 FY1 一致预测的月度变化，除以上月股价，再求和。}
+{HXZ A.1.3（式 A2）：只用 FY1；月度修正 = $(f_t - f_{t-1})/p_{t-1}$，对 $t-5$ 到 $t$ 的修正求和，至少 4 个。财年结束后、实际值公布前，FY1 仍是刚结束的财年。}
+{混入 FY2；\code{unique()} 打乱行序后再 \code{shift}，滞后顺序错乱；用 $t-6$ 到 $t-1$（晚一个月）求平均；下载条件 \code{fpedats >= statpers} 把财年结束后的 FY1 都删了；CRSP 累计调整因子为 0 时除法报错。}
+{只用 FPI = 1；月度修正要求上一条预测正好是上个日历月；\code{monthly\_revision\_l1}--\code{l5} 按日历月取（不是按行），与当月合计 $\ge 4$ 个即求和。下载去掉 \code{fpedats >= statpers}，RE 覆盖增加 84\%。调整因子为 0 视为缺失。}
 
-原分支自身的问题：\texttt{sgrvol} 覆盖下降 93\%（\texttt{rsup} 含月度市值，被误判为同期冲突），本分支未采用。
+\extitle{IBM（FY2017），修正值单位 $10^{-4}$。1 月换财年，没有上月同财年预测，修正为空。修复前 4 月取到了 FY2018 的值。}
+{\tsize\setlength{\tabcolsep}{4pt}
+\begin{tabular}{l r r RRRRR r r}
+\toprule
+statpers & meanest & 当月修正 & l1 & l2 & l3 & l4 & l5 & RE（前） & RE（后） \\
+\midrule
+2017-03 & 13.79 & 0 & 1.20 & 空 & 0 & 0 & $-0.66$ & $-1.82$ & \chg{0.54} \\
+2017-04 & 13.71 & $-4.79$ & 0 & 1.20 & 空 & 0 & 0 & 0.54 & \chg{$-3.60$} \\
+2017-05 & 13.70 & $-0.65$ & $-4.79$ & 0 & 1.20 & 空 & 0 & $-1.90$ & \chg{$-4.25$} \\
+2017-06 & 13.70 & 0 & $-0.65$ & $-4.79$ & 0 & 1.20 & 空 & $-2.49$ & \chg{$-4.25$} \\
+\bottomrule
+\end{tabular}}
+
+l1--l5 即 \code{monthly\_revision\_l1}--\code{l5}。6 月：$0 - 0.65 - 4.79 + 0 + 1.20 = -4.25$（1 月为空，5 个有值）。
 
 %======================================================================
-\section*{四、仍未处理}
-\begingroup\tablefont\setlength{\tabcolsep}{3pt}
-\begin{tabularx}{\linewidth}{@{}l L L@{}}
+\section{财务滞后：AGR 等所有用到上期值的财务指标（\code{functions.py}，\code{accounting.py}）}
+\four{AGR = 总资产同比增长；同样的滞后用于 NI、CHCSHO、CINVEST、ROAVOL、TTM4 等约 100 处。}
+{JKP：上期值必须来自同一家公司（gvkey），并且正好早 $k$ 期（年度 12 个月，季度 3 个月）。}
+{\code{shift(k).over('permno')} 往前数行：permno 换了 gvkey 时取到前一家公司的数；中间缺一期时取到更早的期。}
+{新函数 \code{lag(列, k, months)}：同 permno、同 gvkey、日期相差 $k \times$ months 个月（容差不到一期，可处理财年月份变更）。99.7\% 的值不变，约 1\% 置空；1968--1975 年季度覆盖反而增加（main 年度/季度混排后行距不对）。}
+
+\extitle{permno 10253，2013 年 7 月 gvkey 从 012200 换成 018290；018290 一年前没有资产数据。}
+{\tsize
+\begin{tabular}{l l r Y r r}
 \toprule
-问题 & 规模 & 处理 \\
+datadate & gvkey & atq & atq\_l4 取自 & atq\_l4 & agr \\
 \midrule
-\texttt{sgrvol} 取 16 个月度行而非 16 个季度 & main 原有 & 需要先确定定义（Mohanram 的季度销售增长） \\
-缺失月收益被填 0 & 7 年仅 1 个成为下月收益标签 & 不处理 \\
-gvkey 当月 CCM 链接已失效 & 约 0.6\% 股票月份 & JKP 级别，可选 \\
-IBES 调整后 EPS 的舍入 & 拆股因子 $\ge 10$ 的约 0.4\% 行 & 不处理 \\
+修复前：2013-09-30 & 018290 & 64.822 & 012200，2012-03-31 & 14.811 & 3.377 \\
+修复后：2013-09-30 & 018290 & 64.822 & \chg{018290，2012-09-30（无）} & \chg{空} & \chg{空} \\
 \bottomrule
-\end{tabularx}
-\endgroup
+\end{tabular}}
+
+%======================================================================
+\section{NI：股本净发行（\code{accounting.py}）}
+\four{经拆股调整后股数的对数同比变化。}
+{HXZ A.3.10：$\log(\text{cshoq}\times\text{ajexq}) - \log(\text{一年前同值})$；任何一期股数缺失或非正则缺失。}
+{缺失时 \code{fill\_null(0)}，结果变成 $\log(\text{股数}) - 0$，即股数本身的对数（季度 7.5\%、年度 6.9\% 的值）。}
+{两期股数都为正才计算，否则为空。}
+
+\extitle{gvkey 034077，2019Q1；一年前（2018Q1）\code{cshoq} 缺失。}
+{\tsize
+\begin{tabular}{l r R r r}
+\toprule
+datadate & cshoq & cshoq\_l4 & ni（前） & ni（后） \\
+\midrule
+2019-03-31 & 31.369 & 空 & 3.446 & \chg{空} \\
+\bottomrule
+\end{tabular}}
+
+%======================================================================
+\section{季度 ROA（\code{accounting.py}）}
+\four{季度净利润 / 上季度总资产。}
+{HXZ A.4.3：\code{ibq} 在公告日 \code{rdq} 之后即可使用，\code{atq} 用上一季度；季末在 6 个月以内。}
+{一段“最新 ibq”代码把 \code{ibq} 换成下一季度的值，但 \code{atq\_l1} 仍是本季度的上一季，分子分母差了一个季度。}
+{删掉这段替换；ROA 先按季度算 $\text{ibq}_q / \text{atq}_{q-1}$，输出时按每月最近一次公告（\code{rdq}）取值，季末超过 6 个月不再使用（没有 \code{rdq} 时退回季末 + 4 个月）。其他季度指标仍按季末 + 4 个月。}
+
+\extitle{permno 10026（gvkey 012825），2018 年。Q2 于 7 月 30 日公告，Q3 于 11 月 8 日公告。}
+{\tsize
+\begin{tabular}{l l r l R Y r r}
+\toprule
+ & \multicolumn{2}{c}{修复前} & & \multicolumn{2}{c}{修复后用到的季度} & & \\
+\cmidrule(lr){2-3}\cmidrule(lr){5-6}
+月份 & datadate & roa（前） & 前的算法 & roa\_datadate & rdq & roa（后） & 后的算法 \\
+\midrule
+2018-07 & 2018-03-31 & 0.0302 & 26.129 / 865.017 & 2018-06-30 & 2018-07-30 & \chg{0.0294} & 26.129 / 887.549 \\
+2018-10 & 2018-06-30 & 0.0294 & 26.129 / 887.549 & 2018-06-30 & 2018-07-30 & 0.0294 & 同左 \\
+2018-11 & 2018-06-30 & 0.0294 & 26.129 / 887.549 & 2018-09-30 & 2018-11-08 & \chg{0.0256} & 23.385 / 914.232 \\
+\bottomrule
+\end{tabular}}
+
+修复前 7 月：分子是 Q2 的 \code{ibq}（26.129），分母却是 Q4 的 \code{atq}（865.017），而不是 Q1（887.549）。
+
+%======================================================================
+\section{CINVEST：企业投资变化（\code{accounting.py}）}
+\four{本季度 \code{ppentq/saleq} 相对前 4 个季度平均值的变化。}
+{GHZ：需要本季度和前 4 个季度的数据。}
+{前几期缺失也照算（平均数只用到有的那几期）。}
+{\code{ppentq\_l1}--\code{l4} 都有值才计算（\code{lag()} 取同一公司）。4.3\% 的值置空。}
+
+\extitle{permno 14423（gvkey 027046），2016Q1 才开始有 \code{ppentq}。}
+{\tsize
+\begin{tabular}{l R r r}
+\toprule
+datadate & ppentq\_l4 & cinvest（前） & cinvest（后） \\
+\midrule
+2016-06-30 & 空 & 27.0 & \chg{空} \\
+2016-12-31 & 空 & 1.5 & \chg{空} \\
+2017-03-31 & 0.046 & 0.4 & 0.4 \\
+\bottomrule
+\end{tabular}}
+
+%======================================================================
+\section{age：上市年数（\code{accounting.py}）}
+\four{公司在 Compustat 年度数据中出现的年数。}
+{GHZ：按 gvkey 数 Compustat 年度记录，逐年递增。}
+{\code{cum\_count} 在去重和排序之前计算，年龄会跳动甚至倒退（13,695 次倒退）。}
+{从年度 Compustat 中取 gvkey 的 \code{datadate}，按日期排名（\code{rank('dense')}），沿用 main 的 \code{count} 列。}
+
+\extitle{permno 11581（gvkey 001706）。}
+{\tsize
+\begin{tabular}{l *{8}{c}}
+\toprule
+datadate（8 月） & 2012 & 2013 & 2014 & 2015 & 2016 & 2017 & 2018 & 2019 \\
+\midrule
+age（前） & 3 & 8 & 4 & 1 & 7 & 6 & 10 & 5 \\
+age（后） & \chg{1} & \chg{2} & \chg{3} & \chg{4} & \chg{5} & 6 & \chg{7} & \chg{8} \\
+\bottomrule
+\end{tabular}}
+
+%======================================================================
+\section{年度、季度合并与下月收益（\code{impute\_rank\_output.py}）}
+\four{把年度与季度指标合到每个股票月份，再配上下个月的收益作为预测目标。}
+{JKP：按股票月份合并；公司变更时用最新财报。CZ：年报在可用后（季末 + 4 个月）最多使用 12 个月，即季末后 15 个月。下月收益必须是下一个日历月。}
+{按 \code{gvkey} 连接：还没有年报（年度 gvkey 为空）或换了公司时，整行季度指标丢失（2.9\% 的行）；年报不设期限，停牌多年后复牌仍用旧年报；下月收益取“下一行”，停牌后取到几年后的收益（98 行）。}
+{按（permno，jdate）连接，季度侧 gvkey 暂存为 \code{q\_gvkey}；两边公司不同时保留财报较新的一边；年报超过季末 15 个月置空；下月收益只取下一个日历月。}
+
+\extitle{permno 11990（gvkey 179741），2019 年 5 月才有第一份年报。}
+{\tsize
+\begin{tabular}{l l Y r r}
+\toprule
+月份 & 年度 gvkey & q\_gvkey & sue（前） & sue（后） \\
+\midrule
+2018-08 & 空 & 179741 & 空 & \chg{0.628} \\
+2018-11 & 空 & 179741 & 空 & \chg{1.397} \\
+2019-03 & 空 & 179741 & 空 & \chg{$-1.855$} \\
+\bottomrule
+\end{tabular}}
+
+\extitle{permno 10051：2016 年 1 月后停牌，2018 年 9 月复牌。}
+{\tsize
+\begin{tabular}{l l r r r r}
+\toprule
+月份 & 年报 datadate & currat（前） & currat（后） & 下月收益（前） & 下月收益（后） \\
+\midrule
+2016-01 & 2014-12-31 & 1.875 & 1.875 & $-0.119$（2018-09） & \chg{空} \\
+2018-09 & 2014-12-31 & 1.875 & \chg{空} & $-0.104$ & $-0.104$ \\
+\bottomrule
+\end{tabular}}
+
+%======================================================================
+\section{其他小修}
+{\tsize
+\begin{tabularx}{\linewidth}{@{}l X X@{}}
+\toprule
+指标 & 原代码问题 & 修复后（依据） \\
+\midrule
+DY（\code{ttm12}） & 往前数 12 行，停牌时跨越超过 12 个月 & 要求连续 12 个日历月（JKP） \\
+DY 的月度股息 & 用上一行的价格换算，跨缺失月 & 上一行必须是上个月（JKP） \\
+ROAVOL & 16 期 ROA 往前数行 & 用 \code{lag(..., months=3)}（JKP） \\
+\bottomrule
+\end{tabularx}}
+
+%======================================================================
+\section{数据下载（\code{download\_data.py}）}
+\begin{itemize}
+\item 只登录 WRDS 一次，DuckDB 限制为 1 个连接（默认最多 64 个并行连接，每个都是一次登录 / Duo 推送）；登录失败立即退出，不重试。
+\item 增量更新：本地已有的表只下载最近一段（Compustat、IBES 从最新日期往前 24 个月，CRSP 3 个月），替换本地同期的行；\code{ccm} 很小，每次全量。新表或 \code{--full} 才全量下载。
+\item 某张表失败时脚本停止，不再重新连接；已完成的表已保存，下次只补剩下的。
+\item IBES 下载条件去掉 \code{fpedats >= statpers}（见第 3 节），IBES 也按 \code{statpers} 增量更新。
+\end{itemize}
+用法：\code{python download\_data.py}（全部更新）；\code{--tables ibes crsp\_msf}（只更新这几张）；\code{--full ibes}（这张表重新全量下载）。
+
+%======================================================================
+\section{未采纳与仍未处理}
+{\tsize
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.3\linewidth} X@{}}
+\toprule
+\multicolumn{2}{@{}l}{\textbf{未采纳（原分支提出，但基准不要求或影响很小）}} \\
+\midrule
+年度数据改为次年 6 月形成 & HXZ 年度组合的做法；本面板按月更新，沿用季末 + 4 个月（JKP）。会改变约 28\% 的年度值。 \\
+ABR 改用 \code{vwretd} & 与 \code{mktrf + rf} 相关 0.998，ABR 截面秩相关 $\ge$ 0.9994。 \\
+RE 改用 IBES 未调整预测和 IBES 价格 & 与现做法截面秩相关 0.986；需新增一张表和拆股换算。 \\
+ABR 要求四天收益齐全、按月核对 CCM 链接 & HXZ 未要求；只有 JKP 按月核对链接。 \\
+\midrule
+\multicolumn{2}{@{}l}{\textbf{仍未处理}} \\
+\midrule
+\code{sgrvol} 取 16 个月度行 & main 原有，需先确定定义（季度销售增长）。 \\
+季度数据停牌后复牌仍沿用 & 季末后超过 15 个月的季度行约 0.06\%（如 permno 10051 在 2018-09 仍用 2015Q3）。 \\
+gvkey 当月 CCM 链接已失效 & 约 0.6\% 股票月份，JKP 级别。 \\
+\code{iclink\_ciz.csv} & 由 SAS 脚本 \code{iclink\_ciz.sas} 生成，不在 \code{download\_data.py} 中。 \\
+\bottomrule
+\end{tabularx}}
 
 %======================================================================
 \section*{附：文献原文}
-\begingroup\setlength{\parskip}{2pt}
 \includegraphics[width=0.8\linewidth]{figures/ref-timing.png}\par
 \includegraphics[width=0.8\linewidth]{figures/ref-sue.png}\par
 \includegraphics[width=0.8\linewidth]{figures/ref-abr.png}\par
@@ -199,5 +299,4 @@ IBES 调整后 EPS 的舍入 & 拆股因子 $\ge 10$ 的约 0.4\% 行 & 不处�
 \includegraphics[width=0.8\linewidth]{figures/ref-ni.png}\par
 \includegraphics[width=0.8\linewidth]{figures/ref-roa.png}\par
 \includegraphics[width=0.8\linewidth]{figures/ref-cinvest.png}\par
-\endgroup
 \end{document}
