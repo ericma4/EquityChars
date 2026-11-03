@@ -199,6 +199,28 @@ datadate & ppentq\_l4 & cinvest（前） & cinvest（后） \\
 \end{tabular}}
 
 %======================================================================
+\section{SGRVOL、ROAVOL：销售增长与盈利波动（\code{accounting.py}）}
+\four{SGRVOL = 过去 15 个季度 \code{rsup}（季度销售同比增量 / 季末市值）的标准差；ROAVOL = 过去 16 个季度 ROA 的标准差（Mohanram 得分 m7、m8 用到）。}
+{GHZ：在季度财报面板上计算，\code{sgrvol} 用 $t$ 到 $t-14$ 季，\code{roavol} 用 $t$ 到 $t-15$ 季；\code{rsup} 的分母是季末市值 \code{mveq}；公司季度记录不足 17 个时两者都为空。}
+{\code{sgrvol} 在月度面板上往前取 16 行，实际只覆盖约 5 个季度，同一季度重复 3 次，分母还是每月变化的市值，所以同一季度内每月数值都不同；两者都没有 17 个季度的要求。}
+{在季度财报面板上与 \code{roavol} 一起计算：\code{rsup} 用 main 已下载的季末市值 \code{mveq\_f}（\code{prccq}$\times$\code{cshoq}），按 \code{lag()} 取同一公司的季度；记录不足 17 个季度时置空。月度的 \code{rsup} 指标本身不变。2018--2021 年样本中 \code{sgrvol} 与原值截面秩相关 0.90；全库 2015--2021 年约 76\% 的季度满足 17 个季度的要求。}
+
+\extitle{permno 10026（gvkey 012825），2019 年。}
+{\tsize
+\begin{tabular}{l l R r r}
+\toprule
+月份 & datadate & rsup（季度，\code{mveq\_f}） & sgrvol（前） & sgrvol（后） \\
+\midrule
+2019-01 & 2018-09-30 & $-0.0055$ & 0.0076 & \chg{0.0067} \\
+2019-02 & 2018-09-30 & $-0.0055$ & 0.0085 & \chg{0.0067} \\
+2019-03 & 2018-09-30 & $-0.0055$ & 0.0092 & \chg{0.0067} \\
+2019-04 & 2018-12-31 & 0.0022 & 0.0093 & \chg{0.0066} \\
+\bottomrule
+\end{tabular}}
+
+修复前同一季度（2018-09-30）三个月给出三个不同的值；修复后每个季度一个值。
+
+%======================================================================
 \section{age：上市年数（\code{accounting.py}）}
 \four{公司在 Compustat 年度数据中出现的年数。}
 {GHZ：按 gvkey 数 Compustat 年度记录，逐年递增。}
@@ -267,7 +289,6 @@ age（后） & \chg{1} & \chg{2} & \chg{3} & \chg{4} & \chg{5} & 6 & \chg{7} & \
 \midrule
 DY（\code{ttm12}） & 往前数 12 行，停牌时跨越超过 12 个月 & 要求连续 12 个日历月（JKP） \\
 DY 的月度股息 & 用上一行的价格换算，跨缺失月 & 上一行必须是上个月（JKP） \\
-ROAVOL & 16 期 ROA 往前数行 & 用 \code{lag(..., months=3)}（JKP） \\
 季度财报去重 & 财年变更时同一 \code{datadate} 有两行（全库 1,580 对），\code{unique()} 随机保留一行，重跑结果不同 & 每个（gvkey，datadate）按 \code{fyearq, fqtr} 排序保留最后一行（JKP）；SUE、ABR、财务指标三处一致 \\
 \bottomrule
 \end{tabularx}}
@@ -297,7 +318,6 @@ ABR 要求四天收益齐全、按月核对 CCM 链接 & HXZ 未要求；只有 
 \midrule
 \multicolumn{2}{@{}l}{\textbf{仍未处理}} \\
 \midrule
-\code{sgrvol} 取 16 个月度行 & main 原有，需先确定定义（季度销售增长）。 \\
 gvkey 当月 CCM 链接已失效 & 约 0.6\% 股票月份，JKP 级别。 \\
 \bottomrule
 \end{tabularx}}

@@ -1869,8 +1869,20 @@ def chars_std(start, end, df, chars, months=None):
 # ])
 
 # roavol
+# 20261030fix-GHZ: sgrvol = std of rsup = (saleq - saleq_l4) / quarter-end mveq over quarters t..t-14,
+# on this report panel next to roavol (main used 16 rows of the monthly panel, about five quarters).
+# rsup is recomputed with monthly me further below for the rsup characteristic itself.
 data_rawq = data_rawq.with_columns([
-    pl.Series('roavol', chars_std(0, 16, data_rawq, 'roa', months=3))
+    ((pl.col('saleq') - pl.col('saleq_l4')) / pl.col('mveq_f').replace(0, None)).alias('rsup')
+])
+data_rawq = data_rawq.with_columns([
+    pl.Series('roavol', chars_std(0, 16, data_rawq, 'roa', months=3)),
+    pl.Series('sgrvol', chars_std(0, 15, data_rawq, 'rsup', months=3))
+])
+# 20261030fix-GHZ: roavol and sgrvol need 17 quarterly records of the company (count >= 17).
+data_rawq = data_rawq.with_columns([
+    pl.when(pl.col('datadate').rank('dense').over(['permno', 'gvkey']) >= 17).then(pl.col(c)).alias(c)
+    for c in ['roavol', 'sgrvol']
 ])
 
 # scf / stdcf — removed, see sacc block above
@@ -2428,11 +2440,7 @@ data_rawq = data_rawq.with_columns([
     ((pl.col('saleq') - pl.col('saleq_l4')) / pl.col('me').replace(0, None)).alias('rsup')
 ])
 
-# (checked): check 0-15/0-16
-# sgrvol: 为什么用rsup计算sgrvol(reference)
-data_rawq = data_rawq.with_columns([
-    chars_std(0, 16, data_rawq, 'rsup').alias('sgrvol')
-])
+# sgrvol: computed on the quarterly report panel above (20261030fix)
 
 # cashpr
 data_rawq = data_rawq.with_columns([
