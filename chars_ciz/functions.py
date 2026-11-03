@@ -300,12 +300,13 @@ def lag(series, k, months):
 
 def ttm4(series, df):
     """
-    Calculate trailing 4-quarter sum (TTM4) using Polars.
-
+    Calculate trailing 4-period sum (TTM4) using Polars.
+    
     :param series: variables' name (string)
     :param df: polars dataframe (used to compute the result as a Series)
     :return: polars Expression that can be used in with_columns()
-
+    
+    Note: This function returns a Polars Expression for use in with_columns().
     Example: data_rawq.with_columns([ttm4('ibq', data_rawq).alias('ibq4')])
     """
     # 20261030fix-Sum four consecutive quarters of the same company (null across gaps).
@@ -314,8 +315,13 @@ def ttm4(series, df):
 
 def ttm12(series, df):
     """
-    Calculate trailing 12-month sum (TTM12) using Polars.
-
+    Calculate trailing 12-period sum (TTM12) using Polars.
+    
+    :param series: variables' name (string)
+    :param df: polars dataframe (used to compute the result as a Series)
+    :return: polars Expression that can be used in with_columns()
+    
+    Note: This function returns a Polars Expression for use in with_columns().
     Example: crsp_mom.with_columns([(ttm12('mdivpay', crsp_mom) / pl.col('me')).alias('dy')])
     """
     # 20261030fix-JKP: require 12 consecutive calendar months; row shifts can span missing months.

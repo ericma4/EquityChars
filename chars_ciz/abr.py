@@ -1,4 +1,4 @@
-# Calculate HXZ Replicating Anomalies
+# Calculate HSZ Replicating Anomalies
 # ABR: Cumulative abnormal stock returns around earnings announcements
 # Optimized version with Polars + DuckDB
 
@@ -15,6 +15,9 @@ num_threads = max(1, os.cpu_count() // 2)
 comp = (
     pl.scan_parquet(INPUT_PATH + "comp_fundq.parquet")
     .select(["gvkey", "datadate", "rdq", "fyearq", "fqtr"])
+    # 20261030fix-JKP: one report per gvkey/datadate (fiscal-year changes duplicate a datadate).
+    .sort(["gvkey", "datadate", "fyearq", "fqtr"])
+    .unique(["gvkey", "datadate"], keep="last", maintain_order=True)
     .with_columns(
         pl.col("datadate").cast(pl.Date),
         pl.col("rdq").cast(pl.Date),

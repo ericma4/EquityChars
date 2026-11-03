@@ -1,4 +1,4 @@
-# Calculate HXZ Replicating Anomalies
+# Calculate HSZ Replicating Anomalies
 # RE: Revisions in analysts' earnings forecasts
 
 import polars as pl

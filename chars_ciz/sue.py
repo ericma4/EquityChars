@@ -1,4 +1,4 @@
-# Calculate HXZ Replicating Anomalies
+# Calculate HSZ Replicating Anomalies
 # SUE: Standardized Unexpected Earnings (Earnings surprise)
 
 import polars as pl
@@ -13,6 +13,9 @@ from functions import INPUT_PATH, OUTPUT_PATH
 comp = (
     pl.scan_parquet(INPUT_PATH + "comp_fundq.parquet")
     .select(["gvkey", "datadate", "rdq", "fyearq", "fqtr", "epspxq", "ajexq"])
+    # 20261030fix-JKP: one report per gvkey/datadate (fiscal-year changes duplicate a datadate).
+    .sort(["gvkey", "datadate", "fyearq", "fqtr"])
+    .unique(["gvkey", "datadate"], keep="last", maintain_order=True)
     .collect()
 )
 

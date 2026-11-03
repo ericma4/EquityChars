@@ -1,5 +1,6 @@
 import os
 import sys
+import polars as pl
 import argparse
 import getpass
 import duckdb
@@ -313,6 +314,7 @@ def download_all_tables(tables=None, full=(), username=None, password=None):
     """
     os.makedirs(OUTPUT_PATH, exist_ok=True)
     names = tables or list(get_tables_config())
+    names += [t for t in full if t not in names]
     starts = {name: update_start(get_tables_config()[name], name in full) for name in names}
 
     con = connect_wrds(username, password)

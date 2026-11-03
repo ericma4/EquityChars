@@ -1295,7 +1295,9 @@ comp = comp.rename({'cusip': 'cusip_comp'})
 comp = comp.filter(pl.col('ibq').is_not_null())
 
 # sort and clean up
-comp = comp.sort(['gvkey', 'datadate']).unique()
+# 20261030fix-JKP: one report per gvkey/datadate. A fiscal-year change can give two rows with the
+# same datadate; unique() kept either one at random, so reruns differed. Keep the later fiscal quarter.
+comp = comp.sort(['gvkey', 'datadate', 'fyearq', 'fqtr']).unique(['gvkey', 'datadate'], keep='last', maintain_order=True)
 comp = comp.with_columns([
     pl.when(pl.col('cshoq') == 0).then(None).otherwise(pl.col('cshoq')).alias('cshoq'),
     pl.when(pl.col('ceqq') == 0).then(None).otherwise(pl.col('ceqq')).alias('ceqq'),
